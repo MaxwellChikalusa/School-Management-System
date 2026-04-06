@@ -3,6 +3,7 @@ import ExportMenu from "../components/ExportMenu";
 import { createAttendance, deleteAttendance, fetchAttendance, fetchStudents, updateAttendance } from "../api";
 import { matchesSearch } from "../constants/schoolData";
 import "../styles/attendance.css";
+import { confirmDelete } from "../utils/confirmDelete";
 
 const initialForm = {
   student_id: "",
@@ -121,6 +122,7 @@ export default function Attendance() {
                         Edit
                       </button>
                       <button type="button" className="danger-button" onClick={async () => {
+                        if (!confirmDelete(record.student?.full_name || "this attendance record")) return;
                         await deleteAttendance(record.id);
                         loadData();
                       }}>

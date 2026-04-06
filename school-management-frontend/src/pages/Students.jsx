@@ -3,6 +3,7 @@ import ExportMenu from "../components/ExportMenu";
 import { createStudent, deleteStudent, fetchStudents, updateStudent } from "../api";
 import { FORM_OPTIONS, SEX_OPTIONS, matchesSearch } from "../constants/schoolData";
 import "../styles/students.css";
+import { confirmDelete } from "../utils/confirmDelete";
 
 const initialForm = {
   full_name: "",
@@ -136,6 +137,7 @@ export default function Students() {
                         Edit
                       </button>
                       <button type="button" className="danger-button" onClick={async () => {
+                        if (!confirmDelete(student.full_name || "this student")) return;
                         await deleteStudent(student.id);
                         loadStudents();
                       }}>

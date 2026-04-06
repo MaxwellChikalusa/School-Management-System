@@ -317,6 +317,9 @@ def delete_student(db: Session, student_id: int) -> bool:
     student = db.query(models.Student).filter(models.Student.id == student_id).first()
     if not student:
         return False
+    db.query(models.Attendance).filter(models.Attendance.student_id == student.id).delete()
+    db.query(models.Fee).filter(models.Fee.student_id == student.id).update({"student_id": None})
+    db.query(models.ExamRecord).filter(models.ExamRecord.student_id == student.id).update({"student_id": None})
     db.delete(student)
     db.commit()
     return True

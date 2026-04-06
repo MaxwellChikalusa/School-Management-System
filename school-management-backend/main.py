@@ -1,3 +1,5 @@
+import os
+
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -11,9 +13,15 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="School Management System API")
 
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins or ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -32,10 +40,16 @@ def get_db():
 def startup_seed():
     db = SessionLocal()
     try:
+        models.Base.metadata.create_all(bind=engine)
         crud.ensure_schema(db)
         crud.get_or_create_default_admin(db)
     finally:
         db.close()
+
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
 
 
 @app.post("/auth/signup", response_model=schemas.UserOut)

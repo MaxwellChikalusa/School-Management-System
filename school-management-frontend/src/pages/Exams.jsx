@@ -3,6 +3,7 @@ import ExportMenu from "../components/ExportMenu";
 import { createExamRecord, deleteExamRecord, fetchExamRecords, fetchStudents, updateExamRecord } from "../api";
 import { FORM_OPTIONS, SECONDARY_SUBJECTS, TERM_OPTIONS, matchesSearch } from "../constants/schoolData";
 import "../styles/exams.css";
+import { confirmDelete } from "../utils/confirmDelete";
 
 const defaultSubjects = [
   { subject: "English Language", score: "" },
@@ -197,6 +198,7 @@ export default function Exams() {
                         Edit
                       </button>
                       <button type="button" className="danger-button" onClick={async () => {
+                        if (!confirmDelete(record.student_name || "this exam record")) return;
                         await deleteExamRecord(record.id);
                         loadData();
                       }}>

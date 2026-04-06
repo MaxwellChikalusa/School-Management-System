@@ -9,7 +9,8 @@ import {
 } from "../api";
 import ExportMenu from "../components/ExportMenu";
 import { FORM_OPTIONS, SECONDARY_SUBJECTS, matchesSearch } from "../constants/schoolData";
-import "../styles/dashboard.css";
+import "../styles/timetable.css";
+import { confirmDelete } from "../utils/confirmDelete";
 
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const timeOptions = ["07:00", "08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"];
@@ -26,13 +27,26 @@ const initialEntry = {
 
 const createInitialForm = () => ({
   title: "",
-  timetable_type: "subject",
+  timetable_type: "exam",
   class_name: "",
   is_posted: false,
   note: "",
   days,
   entries: [{ ...initialEntry }],
 });
+
+function compareEntries(a, b) {
+  const dayDifference = days.indexOf(a.day_of_week) - days.indexOf(b.day_of_week);
+  if (dayDifference !== 0) return dayDifference;
+  return a.start_time.localeCompare(b.start_time);
+}
+
+function groupEntriesByDay(entries) {
+  return days.map((day) => ({
+    day,
+    entries: (entries || []).filter((entry) => entry.day_of_week === day).sort(compareEntries),
+  }));
+}
 
 export default function Timetable() {
   const [teachers, setTeachers] = useState([]);
@@ -96,8 +110,8 @@ export default function Timetable() {
       <div className="page-header">
         <div>
           <p className="eyebrow">Timetable</p>
-          <h2>Subject and exam timetable manager</h2>
-          <p className="page-note">Supports Monday to Friday and hours from 7am to 5pm with posting and export.</p>
+          <h2>MSCE style timetable manager</h2>
+          <p className="page-note">Creates a printable exam sheet layout while keeping every timetable entry inside PostgreSQL tables.</p>
         </div>
         <ExportMenu title="Timetable" filename="timetable" rows={timetableRows} />
       </div>
@@ -108,8 +122,8 @@ export default function Timetable() {
           <div className="form-grid">
             <input placeholder="Title" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} required />
             <select value={form.timetable_type} onChange={(event) => setForm({ ...form, timetable_type: event.target.value })}>
-              <option value="subject">Subjects Timetable</option>
               <option value="exam">Exams Timetable</option>
+              <option value="subject">Subjects Timetable</option>
             </select>
             <select value={form.class_name} onChange={(event) => setForm({ ...form, class_name: event.target.value })} required>
               <option value="">Select form</option>
@@ -224,6 +238,7 @@ export default function Timetable() {
                       Post
                     </button>
                     <button type="button" className="danger-button" onClick={async () => {
+                      if (!confirmDelete(timetable.title || "this timetable")) return;
                       await deleteTimetable(timetable.id);
                       loadData();
                     }}>
@@ -231,31 +246,54 @@ export default function Timetable() {
                     </button>
                   </div>
                 </div>
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Day</th>
-                        <th>Start</th>
-                        <th>End</th>
-                        <th>Subject</th>
-                        <th>Teacher</th>
-                        <th>Room</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {timetable.entries.map((entry) => (
-                        <tr key={entry.id}>
-                          <td>{entry.day_of_week}</td>
-                          <td>{entry.start_time}</td>
-                          <td>{entry.end_time}</td>
-                          <td>{entry.subject}</td>
-                          <td>{entry.teacher_name || "-"}</td>
-                          <td>{entry.room || "-"}</td>
+                <div className="msce-sheet">
+                  <div className="msce-sheet-header">
+                    <p className="msce-sheet-kicker">Republic of Malawi</p>
+                    <h4>Malawi School Certificate of Education</h4>
+                    <p className="msce-sheet-meta">{timetable.title} | {timetable.class_name} | {timetable.is_posted ? "Posted" : "Draft"}</p>
+                    <p className="msce-sheet-note">{timetable.note || "Official examination timetable prepared by the school management system."}</p>
+                  </div>
+
+                  <div className="table-wrap">
+                    <table className="msce-table">
+                      <thead>
+                        <tr>
+                          <th>Day / Date</th>
+                          <th>Time</th>
+                          <th>Paper / Subject</th>
+                          <th>Supervisor</th>
+                          <th>Venue</th>
+                          <th>Remarks</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {groupEntriesByDay(timetable.entries).map(({ day, entries }) =>
+                          entries.length ? (
+                            entries.map((entry, index) => (
+                              <tr key={entry.id}>
+                                <td>{index === 0 ? day : ""}</td>
+                                <td>{entry.start_time} - {entry.end_time}</td>
+                                <td>{entry.subject}</td>
+                                <td>{entry.teacher_name || "Invigilator TBA"}</td>
+                                <td>{entry.room || "Main Hall"}</td>
+                                <td>{entry.note || "-"}</td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr key={day}>
+                              <td>{day}</td>
+                              <td colSpan="5">No paper scheduled</td>
+                            </tr>
+                          )
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="msce-sheet-footer">
+                    <span>Candidate instructions: arrive 30 minutes before the paper starts.</span>
+                    <span>Generated from the school database.</span>
+                  </div>
                 </div>
               </div>
             ))}

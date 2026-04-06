@@ -1,0 +1,85 @@
+.msce-sheet {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem;
+  border: 1px solid #bfcde0;
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 250, 240, 0.9) 0%, rgba(255, 255, 255, 0.96) 100%),
+    repeating-linear-gradient(
+      90deg,
+      rgba(128, 0, 0, 0.04) 0,
+      rgba(128, 0, 0, 0.04) 14px,
+      transparent 14px,
+      transparent 28px
+    );
+  box-shadow: inset 0 0 0 1px rgba(128, 0, 0, 0.08);
+}
+
+.msce-sheet-header {
+  text-align: center;
+  border-bottom: 2px solid #7f1d1d;
+  padding-bottom: 0.9rem;
+}
+
+.msce-sheet-kicker {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #7f1d1d;
+}
+
+.msce-sheet-header h4 {
+  margin: 0.35rem 0;
+  color: #10233a;
+  font-size: 1.35rem;
+}
+
+.msce-sheet-meta,
+.msce-sheet-note,
+.msce-sheet-footer {
+  color: #4f6074;
+}
+
+.msce-sheet-meta,
+.msce-sheet-note {
+  margin: 0.2rem 0 0;
+}
+
+.msce-table th {
+  background: #7f1d1d;
+  color: #fff9ef;
+  border-bottom: 0;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.msce-table td {
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.msce-table tbody tr:nth-child(even) td {
+  background: rgba(252, 247, 239, 0.92);
+}
+
+.msce-sheet-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed #b8c6d8;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 768px) {
+  .msce-sheet {
+    padding: 1rem;
+  }
+
+  .msce-sheet-footer {
+    flex-direction: column;
+  }
+}

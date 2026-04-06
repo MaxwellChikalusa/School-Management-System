@@ -3,6 +3,7 @@ import ExportMenu from "../components/ExportMenu";
 import { createFee, deleteFee, fetchFees, fetchStudents, updateFee } from "../api";
 import { matchesSearch } from "../constants/schoolData";
 import "../styles/fees.css";
+import { confirmDelete } from "../utils/confirmDelete";
 
 const initialForm = {
   student_id: "",
@@ -145,6 +146,7 @@ export default function Fees() {
                         Edit
                       </button>
                       <button type="button" className="danger-button" onClick={async () => {
+                        if (!confirmDelete(fee.student_name || "this fees record")) return;
                         await deleteFee(fee.id);
                         loadData();
                       }}>
