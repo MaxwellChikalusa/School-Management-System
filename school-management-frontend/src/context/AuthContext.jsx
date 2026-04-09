@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { loginUser, signupUser } from "../api";
+import { changePassword, loginUser, signupUser } from "../api";
 
 const AuthContext = createContext();
 
@@ -35,7 +35,15 @@ export function AuthProvider({ children }) {
     const result = await loginUser({ username, password });
     if (result.success) {
       setCurrentUser(result.data);
-      return { success: true };
+      return { success: true, mustChangePassword: result.data.must_change_password };
+    }
+    return result;
+  };
+
+  const updatePassword = async (currentPassword, newPassword) => {
+    const result = await changePassword({ current_password: currentPassword, new_password: newPassword });
+    if (result.success) {
+      setCurrentUser(result.data);
     }
     return result;
   };
@@ -45,7 +53,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ currentUser, signup, login, logout, setCurrentUser }}>
+    <AuthContext.Provider value={{ currentUser, signup, login, logout, setCurrentUser, updatePassword }}>
       {children}
     </AuthContext.Provider>
   );

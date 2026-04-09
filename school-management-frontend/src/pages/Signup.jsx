@@ -13,6 +13,11 @@ function fileToBase64(file) {
   });
 }
 
+function normalizeMalawiPhoneInput(value) {
+  const digits = value.replace(/\D/g, "").replace(/^265/, "").slice(0, 9);
+  return `+265${digits}`;
+}
+
 export default function Signup() {
   const navigate = useNavigate();
   const { signup } = useAuth();
@@ -26,8 +31,8 @@ export default function Signup() {
     role: "teacher",
     subject: "",
     sex: "",
-    phone: "",
-    email: "",
+    phone: "+265",
+    email: "example@gmail.com",
     qualification: "",
     profile_image: "",
   });
@@ -50,8 +55,8 @@ export default function Signup() {
         role: "teacher",
         subject: "",
         sex: "",
-        phone: "",
-        email: "",
+        phone: "+265",
+        email: "example@gmail.com",
         qualification: "",
         profile_image: "",
       });
@@ -111,18 +116,16 @@ export default function Signup() {
               </select>
               <input
                 type="text"
-                placeholder="Phone e.g. 0991234567 or +265991234567"
+                placeholder="+265"
                 value={form.phone}
-                pattern="^(099\d{7}|098\d{7}|088\d{7}|\+26599\d{7}|\+26598\d{7}|\+26588\d{7})$"
-                title="Use 099, 098, 088, +26599, +26598 or +26588"
-                onChange={(event) => setForm({ ...form, phone: event.target.value.replace(/\s+/g, "") })}
+                pattern="^\+265\d{9}$"
+                title="Use +265 followed by 9 digits"
+                onChange={(event) => setForm({ ...form, phone: normalizeMalawiPhoneInput(event.target.value) })}
               />
               <input
-                type="text"
+                type="email"
                 placeholder="example@gmail.com"
                 value={form.email}
-                pattern="^[a-z]+@gmail\.com$"
-                title='Use lowercase Gmail format like "example@gmail.com"'
                 onChange={(event) => setForm({ ...form, email: event.target.value })}
               />
               <input

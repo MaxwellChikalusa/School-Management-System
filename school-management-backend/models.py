@@ -12,6 +12,7 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     role = Column(String, nullable=False, default="teacher")
     status = Column(String, nullable=False, default="approved")
+    must_change_password = Column(Boolean, nullable=False, default=True)
     full_name = Column(String, nullable=False)
     profile_image = Column(Text, nullable=True)
 
@@ -27,6 +28,7 @@ class Student(Base):
     class_name = Column(String, index=True, nullable=False)
     guardian_name = Column(String, nullable=True)
     guardian_contact = Column(String, nullable=True)
+    email_address = Column(String, nullable=True)
     address = Column(String, nullable=True)
 
 
@@ -118,6 +120,7 @@ class ExamRecord(Base):
     student_id = Column(Integer, ForeignKey("students.id"), nullable=True)
     student_name = Column(String, nullable=False)
     class_name = Column(String, nullable=False)
+    post_office_address = Column(String, nullable=True)
     exam_name = Column(String, nullable=False, default="Main Exam")
     term = Column(String, nullable=True)
     subject_scores = Column(Text, nullable=True)

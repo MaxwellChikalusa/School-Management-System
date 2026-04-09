@@ -2,7 +2,8 @@ import React, { useEffect, useState } from "react";
 import ExportMenu from "../components/ExportMenu";
 import { createFee, deleteFee, fetchFees, fetchStudents, updateFee } from "../api";
 import { groupStudentsByForm, matchesSearch } from "../constants/schoolData";
-import { useConfirmDialog } from "../context/ConfirmDialogContext";
+import { useConfirmDialog, useSuccessDialog } from "../context/ConfirmDialogContext";
+import { formatCurrency, formatNumber } from "../utils/formatters";
 import "../styles/fees.css";
 
 const initialForm = {
@@ -16,6 +17,7 @@ const initialForm = {
 
 export default function Fees() {
   const confirm = useConfirmDialog();
+  const showSuccess = useSuccessDialog();
   const [students, setStudents] = useState([]);
   const [fees, setFees] = useState([]);
   const [form, setForm] = useState(initialForm);
@@ -34,6 +36,24 @@ export default function Fees() {
 
   const filteredFees = fees.filter((fee) => matchesSearch([fee.student_name, fee.note], query));
   const studentGroups = groupStudentsByForm(students);
+  const studentMap = Object.fromEntries(students.map((student) => [student.id, student]));
+  const canMarkFullyPaid =
+    Number(form.expected_amount || 0) > 0 &&
+    Number(form.amount_paid || 0) >= Number(form.expected_amount || 0);
+  const groupedFees = studentGroups
+    .map((group) => ({
+      formName: group.formName,
+      rows: filteredFees
+        .filter((fee) => studentMap[fee.student_id]?.class_name === group.formName)
+        .sort((left, right) => (
+          Number(right.fully_paid) - Number(left.fully_paid)
+          || right.amount_paid - left.amount_paid
+          || left.balance - right.balance
+          || left.student_name.localeCompare(right.student_name)
+        ))
+        .map((fee, index) => ({ ...fee, formRank: index + 1 })),
+    }))
+    .filter((group) => group.rows.length);
 
   return (
     <section className="page-shell">
@@ -59,8 +79,10 @@ export default function Fees() {
 
             if (editingId) {
               await updateFee(editingId, payload);
+              showSuccess({ title: "Updated successfully", message: "Fee record was updated successfully." });
             } else {
               await createFee(payload);
+              showSuccess({ title: "Saved successfully", message: "Fee record was saved successfully." });
             }
 
             setForm(initialForm);
@@ -93,10 +115,35 @@ export default function Fees() {
               ))}
             </select>
             <input placeholder="Name" value={form.student_name} onChange={(event) => setForm({ ...form, student_name: event.target.value })} required />
-            <input type="number" placeholder="Total fees" value={form.expected_amount} onChange={(event) => setForm({ ...form, expected_amount: event.target.value })} required />
-            <input type="number" placeholder="Fees paid" value={form.amount_paid} onChange={(event) => setForm({ ...form, amount_paid: event.target.value })} required />
+            <input
+              type="number"
+              placeholder="Total fees"
+              value={form.expected_amount}
+              onChange={(event) => {
+                const expectedAmount = event.target.value;
+                const nextCanMark = Number(form.amount_paid || 0) >= Number(expectedAmount || 0) && Number(expectedAmount || 0) > 0;
+                setForm({ ...form, expected_amount: expectedAmount, fully_paid: nextCanMark ? form.fully_paid : false });
+              }}
+              required
+            />
+            <input
+              type="number"
+              placeholder="Fees paid"
+              value={form.amount_paid}
+              onChange={(event) => {
+                const amountPaid = event.target.value;
+                const nextCanMark = Number(amountPaid || 0) >= Number(form.expected_amount || 0) && Number(form.expected_amount || 0) > 0;
+                setForm({ ...form, amount_paid: amountPaid, fully_paid: nextCanMark ? form.fully_paid : false });
+              }}
+              required
+            />
             <label className="checkbox-row">
-              <input type="checkbox" checked={form.fully_paid} onChange={(event) => setForm({ ...form, fully_paid: event.target.checked })} />
+              <input
+                type="checkbox"
+                checked={canMarkFullyPaid && form.fully_paid}
+                disabled={!canMarkFullyPaid}
+                onChange={(event) => setForm({ ...form, fully_paid: event.target.checked })}
+              />
               Fully paid
             </label>
             <input placeholder="Note" value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} />
@@ -119,6 +166,7 @@ export default function Fees() {
             <table>
               <thead>
                 <tr>
+                  <th>Rank</th>
                   <th>Name</th>
                   <th>Total Fees</th>
                   <th>Fees Paid</th>
@@ -129,44 +177,50 @@ export default function Fees() {
                 </tr>
               </thead>
               <tbody>
-                {filteredFees.map((fee) => (
-                  <tr key={fee.id}>
-                    <td>{fee.student_name}</td>
-                    <td>{fee.expected_amount}</td>
-                    <td>{fee.amount_paid}</td>
-                    <td>{fee.balance}</td>
-                    <td>{fee.fully_paid ? "Yes" : "No"}</td>
-                    <td>{fee.note || "-"}</td>
-                    <td>
-                      <button type="button" onClick={() => {
-                        setEditingId(fee.id);
-                        setForm({
-                          student_id: fee.student_id ? String(fee.student_id) : "",
-                          student_name: fee.student_name || "",
-                          expected_amount: fee.expected_amount,
-                          amount_paid: fee.amount_paid,
-                          fully_paid: fee.fully_paid,
-                          note: fee.note || "",
-                        });
-                      }}>
-                        Edit
-                      </button>
-                      <button type="button" className="danger-button" onClick={async () => {
-                        const approved = await confirm({
-                          title: "Delete fee record?",
-                          message: `Remove the fee entry for ${fee.student_name || "this student"}?`,
-                          confirmLabel: "Delete Record",
-                        });
-                        if (!approved) return;
-                        await deleteFee(fee.id);
-                        loadData();
-                      }}>
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {!filteredFees.length ? <tr><td colSpan="7">No fee records found.</td></tr> : null}
+                {groupedFees.flatMap((group) => [
+                  <tr key={`${group.formName}-header`} className="group-row group-row-green">
+                    <td colSpan="8"><strong>{group.formName}</strong></td>
+                  </tr>,
+                  ...group.rows.map((fee) => (
+                    <tr key={fee.id}>
+                      <td>{formatNumber(fee.formRank)}</td>
+                      <td>{fee.student_name}</td>
+                      <td>{formatCurrency(fee.expected_amount)}</td>
+                      <td>{formatCurrency(fee.amount_paid)}</td>
+                      <td>{formatCurrency(fee.balance)}</td>
+                      <td>{fee.fully_paid ? "Yes" : "No"}</td>
+                      <td>{fee.note || "-"}</td>
+                      <td>
+                        <button type="button" className={editingId === fee.id ? "edit-button-active" : ""} onClick={() => {
+                          setEditingId(fee.id);
+                          setForm({
+                            student_id: fee.student_id ? String(fee.student_id) : "",
+                            student_name: fee.student_name || "",
+                            expected_amount: fee.expected_amount,
+                            amount_paid: fee.amount_paid,
+                            fully_paid: fee.fully_paid,
+                            note: fee.note || "",
+                          });
+                        }}>
+                          Edit
+                        </button>
+                        <button type="button" className="danger-button" onClick={async () => {
+                          const approved = await confirm({
+                            title: "Delete fee record?",
+                            message: `Remove the fee entry for ${fee.student_name || "this student"}?`,
+                            confirmLabel: "Delete Record",
+                          });
+                          if (!approved) return;
+                          await deleteFee(fee.id);
+                          loadData();
+                        }}>
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  )),
+                ])}
+                {!filteredFees.length ? <tr><td colSpan="8">No fee records found.</td></tr> : null}
               </tbody>
             </table>
           </div>

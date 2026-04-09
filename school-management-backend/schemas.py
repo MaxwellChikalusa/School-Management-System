@@ -3,8 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-PHONE_PATTERN = re.compile(r"^(?:099\d{7}|098\d{7}|088\d{7}|\+26599\d{7}|\+26598\d{7}|\+26588\d{7})$")
-EMAIL_PATTERN = re.compile(r"^[a-z]+@gmail\.com$")
+PHONE_PATTERN = re.compile(r"^\+265\d{9}$")
+EMAIL_PATTERN = re.compile(r"^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$")
 
 
 def validate_phone(value: str | None) -> str | None:
@@ -12,7 +12,7 @@ def validate_phone(value: str | None) -> str | None:
         return None
     cleaned = value.strip().replace(" ", "")
     if not PHONE_PATTERN.fullmatch(cleaned):
-        raise ValueError("Phone number must start with 099, 098, 088, +26599, +26598 or +26588")
+        raise ValueError("Phone number must start with +265 and contain 9 digits after the country code")
     return cleaned
 
 
@@ -21,7 +21,7 @@ def validate_email(value: str | None) -> str | None:
         return None
     cleaned = value.strip()
     if not EMAIL_PATTERN.fullmatch(cleaned):
-        raise ValueError('Email must be in the format "example@gmail.com" using lowercase letters only')
+        raise ValueError("Email must contain @ and use lowercase letters only")
     return cleaned
 
 
@@ -55,8 +55,14 @@ class UserOut(ORMModel):
     username: str
     role: str
     status: str
+    must_change_password: bool
     full_name: str
     profile_image: str | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
 
 
 class StudentBase(BaseModel):
@@ -67,15 +73,18 @@ class StudentBase(BaseModel):
     class_name: str
     guardian_name: str | None = None
     guardian_contact: str | None = None
+    email_address: str | None = None
     address: str | None = None
 
 
 class StudentCreate(StudentBase):
     _validate_guardian_contact = field_validator("guardian_contact")(validate_phone)
+    _validate_email_address = field_validator("email_address")(validate_email)
 
 
 class StudentUpdate(StudentBase):
     _validate_guardian_contact = field_validator("guardian_contact")(validate_phone)
+    _validate_email_address = field_validator("email_address")(validate_email)
 
 
 class StudentOut(StudentBase, ORMModel):
@@ -198,6 +207,7 @@ class ExamRecordBase(BaseModel):
     student_id: int | None = None
     student_name: str
     class_name: str
+    post_office_address: str | None = None
     exam_name: str = "Main Exam"
     term: str | None = None
     subject_scores: list[SubjectScore]

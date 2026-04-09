@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Navigate, Route, Routes } from "react-router-dom";
 import Navbar from "./components/Navbar";
 import Sidebar from "./components/Sidebar";
@@ -21,12 +21,29 @@ function ProtectedRoute({ children }) {
 
 function AppRoutes() {
   const { currentUser } = useAuth();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    const savedValue = window.localStorage.getItem("sidebarCollapsed");
+    return savedValue === "true";
+  });
+
+  useEffect(() => {
+    window.localStorage.setItem("sidebarCollapsed", String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
 
   return (
     <div className="app-layout">
       <Navbar />
-      <div className={`main-layout${currentUser ? "" : " main-layout-public"}`}>
-        {currentUser && <Sidebar />}
+      <div
+        className={`main-layout${currentUser ? "" : " main-layout-public"}${
+          currentUser && sidebarCollapsed ? " main-layout-collapsed" : ""
+        }`}
+      >
+        {currentUser && (
+          <Sidebar
+            collapsed={sidebarCollapsed}
+            onToggleCollapse={() => setSidebarCollapsed((current) => !current)}
+          />
+        )}
         <main className={`page-content${currentUser ? "" : " page-content-full"}`}>
           <Routes>
             <Route path="/" element={<Login />} />

@@ -14,6 +14,7 @@ import {
 } from "../api";
 import { FORM_OPTIONS, SECONDARY_SUBJECTS, matchesSearch } from "../constants/schoolData";
 import { useAuth } from "../context/AuthContext";
+import { useSuccessDialog } from "../context/ConfirmDialogContext";
 import "../styles/teachers.css";
 
 function fileToBase64(file) {
@@ -40,6 +41,7 @@ const initialRequest = {
 
 export default function Teachers() {
   const { currentUser } = useAuth();
+  const showSuccess = useSuccessDialog();
   const [teachers, setTeachers] = useState([]);
   const [teacherDrafts, setTeacherDrafts] = useState({});
   const [pendingTeachers, setPendingTeachers] = useState([]);
@@ -92,6 +94,16 @@ export default function Teachers() {
   const toggleForm = (forms, formName) =>
     forms.includes(formName) ? forms.filter((item) => item !== formName) : [...forms, formName];
 
+  async function saveTeacherDraft(teacherId, nextDraft) {
+    setTeacherDrafts((current) => ({
+      ...current,
+      [teacherId]: nextDraft,
+    }));
+    await updateTeacher(teacherId, nextDraft);
+    showSuccess({ title: "Updated successfully", message: "Teacher details were updated successfully." });
+    await loadData();
+  }
+
   return (
     <section className="page-shell">
       <div className="page-header">
@@ -134,12 +146,10 @@ export default function Teachers() {
                         <select
                           value={draft.subject}
                           disabled={currentUser?.role !== "admin"}
-                          onChange={(event) =>
-                            setTeacherDrafts((current) => ({
-                              ...current,
-                              [teacher.id]: { ...draft, subject: event.target.value },
-                            }))
-                          }
+                          onChange={async (event) => {
+                            const nextDraft = { ...draft, subject: event.target.value };
+                            await saveTeacherDraft(teacher.id, nextDraft);
+                          }}
                         >
                           {SECONDARY_SUBJECTS.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
                         </select>
@@ -153,15 +163,13 @@ export default function Teachers() {
                                 type="checkbox"
                                 checked={(draft.assigned_forms || []).includes(formName)}
                                 disabled={currentUser?.role !== "admin"}
-                                onChange={() =>
-                                  setTeacherDrafts((current) => ({
-                                    ...current,
-                                    [teacher.id]: {
-                                      ...draft,
-                                      assigned_forms: toggleForm(draft.assigned_forms || [], formName),
-                                    },
-                                  }))
-                                }
+                                onChange={async () => {
+                                  const nextDraft = {
+                                    ...draft,
+                                    assigned_forms: toggleForm(draft.assigned_forms || [], formName),
+                                  };
+                                  await saveTeacherDraft(teacher.id, nextDraft);
+                                }}
                               />
                               {formName}
                             </label>
@@ -184,22 +192,10 @@ export default function Teachers() {
                               const file = event.target.files?.[0];
                               if (!file) return;
                               const image = await fileToBase64(file);
-                              setTeacherDrafts((current) => ({
-                                ...current,
-                                [teacher.id]: { ...draft, profile_image: image },
-                              }));
+                              const nextDraft = { ...draft, profile_image: image };
+                              await saveTeacherDraft(teacher.id, nextDraft);
                             }}
                           />
-                          <button
-                            type="button"
-                            disabled={currentUser?.role !== "admin"}
-                            onClick={async () => {
-                              await updateTeacher(teacher.id, draft);
-                              loadData();
-                            }}
-                          >
-                            Save Changes
-                          </button>
                           {teacher.user_id ? (
                             <button
                               type="button"

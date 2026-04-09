@@ -11,12 +11,10 @@ import {
 import ExportMenu from "../components/ExportMenu";
 import { FORM_OPTIONS, SECONDARY_SUBJECTS, matchesSearch } from "../constants/schoolData";
 import { useAuth } from "../context/AuthContext";
-import { useConfirmDialog } from "../context/ConfirmDialogContext";
+import { useConfirmDialog, useSuccessDialog } from "../context/ConfirmDialogContext";
 import "../styles/timetable.css";
 
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
-const timeOptions = ["07:00", "08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"];
-
 const initialEntry = {
   day_of_week: "Monday",
   start_time: "07:00",
@@ -53,6 +51,7 @@ function groupEntriesByDay(entries) {
 export default function Timetable() {
   const { currentUser } = useAuth();
   const confirm = useConfirmDialog();
+  const showSuccess = useSuccessDialog();
   const [teachers, setTeachers] = useState([]);
   const [timetables, setTimetables] = useState([]);
   const [permission, setPermission] = useState({ allowed_forms: [], allowed_subjects: [] });
@@ -87,8 +86,10 @@ export default function Timetable() {
 
     if (editingId) {
       await updateTimetable(editingId, payload);
+      showSuccess({ title: "Updated successfully", message: "Timetable was updated successfully." });
     } else {
       await createTimetable(payload);
+      showSuccess({ title: "Saved successfully", message: "Timetable was saved successfully." });
     }
     setForm(createInitialForm());
     setEditingId(null);
@@ -168,20 +169,30 @@ export default function Timetable() {
                   }}>
                     {days.map((day) => <option key={day} value={day}>{day}</option>)}
                   </select>
-                  <select value={entry.start_time} onChange={(event) => {
+                  <input
+                    type="time"
+                    min="07:00"
+                    max="17:00"
+                    step="300"
+                    value={entry.start_time}
+                    onChange={(event) => {
                     const nextEntries = [...form.entries];
                     nextEntries[index] = { ...entry, start_time: event.target.value };
                     setForm({ ...form, entries: nextEntries });
-                  }}>
-                    {timeOptions.map((time) => <option key={time} value={time}>{time}</option>)}
-                  </select>
-                  <select value={entry.end_time} onChange={(event) => {
+                  }}
+                  />
+                  <input
+                    type="time"
+                    min="07:00"
+                    max="17:00"
+                    step="300"
+                    value={entry.end_time}
+                    onChange={(event) => {
                     const nextEntries = [...form.entries];
                     nextEntries[index] = { ...entry, end_time: event.target.value };
                     setForm({ ...form, entries: nextEntries });
-                  }}>
-                    {timeOptions.map((time) => <option key={time} value={time}>{time}</option>)}
-                  </select>
+                  }}
+                  />
                   <select value={entry.subject} onChange={(event) => {
                     const nextEntries = [...form.entries];
                     nextEntries[index] = { ...entry, subject: event.target.value };
@@ -242,7 +253,7 @@ export default function Timetable() {
                     <p>{timetable.class_name} | {timetable.timetable_type} | {timetable.is_posted ? "Posted" : "Draft"}</p>
                   </div>
                   <div className="button-row">
-                    <button type="button" onClick={() => {
+                    <button type="button" className={editingId === timetable.id ? "edit-button-active" : ""} onClick={() => {
                       setEditingId(timetable.id);
                       setForm({
                         title: timetable.title,

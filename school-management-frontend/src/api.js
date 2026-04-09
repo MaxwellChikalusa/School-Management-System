@@ -42,6 +42,15 @@ export async function loginUser(payload) {
   }
 }
 
+export async function changePassword(payload) {
+  try {
+    const { data } = await api.post("/auth/change-password", payload);
+    return { success: true, data };
+  } catch (error) {
+    return { success: false, message: unwrapError(error, "Unable to change password") };
+  }
+}
+
 export async function fetchDashboardSummary() {
   const { data } = await api.get("/dashboard/summary");
   return data;

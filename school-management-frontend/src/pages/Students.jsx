@@ -3,7 +3,8 @@ import ExportMenu from "../components/ExportMenu";
 import { createStudent, deleteStudent, fetchPermissionContext, fetchStudents, updateStudent } from "../api";
 import { FORM_OPTIONS, SEX_OPTIONS, groupStudentsByForm, matchesSearch } from "../constants/schoolData";
 import { useAuth } from "../context/AuthContext";
-import { useConfirmDialog } from "../context/ConfirmDialogContext";
+import { useConfirmDialog, useSuccessDialog } from "../context/ConfirmDialogContext";
+import { formatNumber } from "../utils/formatters";
 import "../styles/students.css";
 
 const initialForm = {
@@ -13,13 +14,20 @@ const initialForm = {
   admission_number: "",
   class_name: "",
   guardian_name: "",
-  guardian_contact: "",
+  guardian_contact: "+265",
+  email_address: "example@gmail.com",
   address: "",
 };
+
+function normalizeMalawiPhoneInput(value) {
+  const digits = value.replace(/\D/g, "").replace(/^265/, "").slice(0, 9);
+  return `+265${digits}`;
+}
 
 export default function Students() {
   const { currentUser } = useAuth();
   const confirm = useConfirmDialog();
+  const showSuccess = useSuccessDialog();
   const [students, setStudents] = useState([]);
   const [permission, setPermission] = useState({ allowed_forms: [], allowed_subjects: [] });
   const [form, setForm] = useState(initialForm);
@@ -45,7 +53,10 @@ export default function Students() {
       query
     )
   );
-  const groupedStudents = groupStudentsByForm(filteredStudents);
+  const groupedStudents = groupStudentsByForm(filteredStudents).map((group) => ({
+    ...group,
+    students: [...group.students].sort((left, right) => left.full_name.localeCompare(right.full_name)),
+  }));
   const classOptions =
     currentUser?.role === "admin"
       ? FORM_OPTIONS
@@ -62,8 +73,10 @@ export default function Students() {
 
     if (editingId) {
       await updateStudent(editingId, payload);
+      showSuccess({ title: "Updated successfully", message: "Student details were updated successfully." });
     } else {
       await createStudent(payload);
+      showSuccess({ title: "Saved successfully", message: "Student details were saved successfully." });
     }
 
     setForm(initialForm);
@@ -97,8 +110,18 @@ export default function Students() {
               {classOptions.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
             <input placeholder="Guardian name" value={form.guardian_name} onChange={(event) => setForm({ ...form, guardian_name: event.target.value })} />
-            <input placeholder="Guardian contact" value={form.guardian_contact} onChange={(event) => setForm({ ...form, guardian_contact: event.target.value })} />
-            <input placeholder="Address" value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} />
+            <input
+              placeholder="+265"
+              value={form.guardian_contact}
+              onChange={(event) => setForm({ ...form, guardian_contact: normalizeMalawiPhoneInput(event.target.value) })}
+            />
+            <input
+              type="email"
+              placeholder="example@gmail.com"
+              value={form.email_address}
+              onChange={(event) => setForm({ ...form, email_address: event.target.value })}
+            />
+            <input placeholder="Post Office Address" value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} />
           </div>
           <div className="button-row">
             <button type="submit">{editingId ? "Update Student" : "Save Student"}</button>
@@ -118,30 +141,36 @@ export default function Students() {
             <table>
               <thead>
                 <tr>
+                  <th>Rank</th>
                   <th>Name</th>
                   <th>Sex</th>
                   <th>Class</th>
                   <th>Age</th>
                   <th>Guardian</th>
                   <th>Contact</th>
+                  <th>Email</th>
+                  <th>P.O. Address</th>
                   <th>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {groupedStudents.flatMap((group) => [
-                  <tr key={`${group.formName}-label`} className="group-row">
-                    <td colSpan="7"><strong>{group.formName}</strong></td>
+                  <tr key={`${group.formName}-label`} className="group-row group-row-green">
+                    <td colSpan="10"><strong>{group.formName}</strong></td>
                   </tr>,
-                  ...group.students.map((student) => (
+                  ...group.students.map((student, index) => (
                     <tr key={student.id}>
+                      <td>{formatNumber(index + 1)}</td>
                       <td>{student.full_name}</td>
                       <td>{student.sex}</td>
                       <td>{student.class_name}</td>
-                      <td>{student.age ?? "-"}</td>
+                      <td>{student.age != null ? formatNumber(student.age) : "-"}</td>
                       <td>{student.guardian_name || "-"}</td>
                       <td>{student.guardian_contact || "-"}</td>
+                      <td>{student.email_address || "-"}</td>
+                      <td>{student.address || "-"}</td>
                       <td>
-                        <button type="button" onClick={() => {
+                        <button type="button" className={editingId === student.id ? "edit-button-active" : ""} onClick={() => {
                           setEditingId(student.id);
                           setForm({
                             full_name: student.full_name || "",
@@ -150,7 +179,8 @@ export default function Students() {
                             admission_number: student.admission_number || "",
                             class_name: student.class_name || "",
                             guardian_name: student.guardian_name || "",
-                            guardian_contact: student.guardian_contact || "",
+                            guardian_contact: normalizeMalawiPhoneInput(student.guardian_contact || "+265"),
+                            email_address: student.email_address || "example@gmail.com",
                             address: student.address || "",
                           });
                         }}>
@@ -172,7 +202,7 @@ export default function Students() {
                     </tr>
                   )),
                 ])}
-                {!filteredStudents.length ? <tr><td colSpan="7">No students found.</td></tr> : null}
+                {!filteredStudents.length ? <tr><td colSpan="10">No students found.</td></tr> : null}
               </tbody>
             </table>
           </div>

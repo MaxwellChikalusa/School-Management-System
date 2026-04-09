@@ -10,6 +10,7 @@ import {
 } from "../api";
 import ExportMenu from "../components/ExportMenu";
 import { useAuth } from "../context/AuthContext";
+import { formatCurrency, formatNumber } from "../utils/formatters";
 import "../styles/dashboard.css";
 
 export default function Dashboard() {
@@ -67,23 +68,23 @@ export default function Dashboard() {
       <div className="cards">
         <div className="card">
           <span className="card-label">Total Students</span>
-          <strong>{summary?.total_students ?? 0}</strong>
+          <strong>{formatNumber(summary?.total_students)}</strong>
           <p>Student register is now live from the database.</p>
         </div>
         <div className="card">
           <span className="card-label">Approved Teachers</span>
-          <strong>{summary?.total_teachers ?? 0}</strong>
-          <p>{summary?.pending_teacher_accounts ?? 0} pending approvals.</p>
+          <strong>{formatNumber(summary?.total_teachers)}</strong>
+          <p>{formatNumber(summary?.pending_teacher_accounts)} pending approvals.</p>
         </div>
         <div className="card">
           <span className="card-label">Attendance Rate</span>
-          <strong>{summary?.attendance_rate ?? 0}%</strong>
+          <strong>{formatNumber(summary?.attendance_rate)}%</strong>
           <p>Based on attendance records entered.</p>
         </div>
         <div className="card">
           <span className="card-label">Fees Collected</span>
-          <strong>MWK {summary?.fees_collected ?? 0}</strong>
-          <p>{summary?.posted_timetables ?? 0} posted timetables visible to users.</p>
+          <strong>MWK {formatCurrency(summary?.fees_collected)}</strong>
+          <p>{formatNumber(summary?.posted_timetables)} posted timetables visible to users.</p>
         </div>
       </div>
 
@@ -96,7 +97,7 @@ export default function Dashboard() {
           <div className="cards compact-cards">
             <div className="card">
               <span className="card-label">Best Average</span>
-              <strong>{summary?.top_students?.[0]?.average ?? 0}%</strong>
+              <strong>{formatNumber(summary?.top_students?.[0]?.average)}%</strong>
               <p>{summary?.top_students?.[0]?.class_name ?? "No class yet"}</p>
             </div>
             <div className="card">
@@ -106,13 +107,13 @@ export default function Dashboard() {
             </div>
             <div className="card">
               <span className="card-label">Students Ranked</span>
-              <strong>{datasets.exams.length}</strong>
+              <strong>{formatNumber(datasets.exams.length)}</strong>
               <p>Dashboard reflects all exam records entered.</p>
             </div>
             <div className="card">
               <span className="card-label">Pass Labels</span>
-              <strong>{datasets.exams.filter((item) => item.passed).length}</strong>
-              <p>{datasets.exams.filter((item) => item.english_failed).length} English failures tracked.</p>
+              <strong>{formatNumber(datasets.exams.filter((item) => item.passed).length)}</strong>
+              <p>{formatNumber(datasets.exams.filter((item) => item.english_failed).length)} English failures tracked.</p>
             </div>
           </div>
         </section>
@@ -124,21 +125,21 @@ export default function Dashboard() {
           </div>
           <div className="schedule-list">
             <div className="schedule-item">
-              <strong>{datasets.exams.length}</strong>
+              <strong>{formatNumber(datasets.exams.length)}</strong>
               <div>
                 <h4>Exam Results</h4>
                 <p>Stored records with automatic averages and ranks</p>
               </div>
             </div>
             <div className="schedule-item">
-              <strong>{datasets.fees.length}</strong>
+              <strong>{formatNumber(datasets.fees.length)}</strong>
               <div>
                 <h4>Fee Entries</h4>
                 <p>Shows expected amount, paid amount, balance and full payment status</p>
               </div>
             </div>
             <div className="schedule-item">
-              <strong>{datasets.timetables.length}</strong>
+              <strong>{formatNumber(datasets.timetables.length)}</strong>
               <div>
                 <h4>Timetables</h4>
                 {/* <p>Subject and exam timetables with posting support</p> */}

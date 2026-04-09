@@ -96,6 +96,18 @@ def login(payload: schemas.LoginRequest, db: Session = Depends(get_db)):
     return user
 
 
+@app.post("/auth/change-password", response_model=schemas.UserOut)
+def change_password(
+    payload: schemas.ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    user = crud.change_password(db, current_user, payload.current_password, payload.new_password)
+    if not user:
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    return user
+
+
 @app.get("/users", response_model=list[schemas.UserOut])
 def read_users(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     require_admin(current_user)

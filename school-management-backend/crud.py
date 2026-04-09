@@ -65,6 +65,17 @@ def ensure_schema(db: Session) -> None:
     if "subject_scores" not in exam_columns:
         db.execute(text("ALTER TABLE exam_records ADD COLUMN subject_scores TEXT"))
         db.commit()
+    if "post_office_address" not in exam_columns:
+        db.execute(text("ALTER TABLE exam_records ADD COLUMN post_office_address TEXT"))
+        db.commit()
+    user_columns = {column["name"] for column in inspector.get_columns("users")}
+    if "must_change_password" not in user_columns:
+        db.execute(text("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT TRUE"))
+        db.commit()
+    student_columns = {column["name"] for column in inspector.get_columns("students")}
+    if "email_address" not in student_columns:
+        db.execute(text("ALTER TABLE students ADD COLUMN email_address TEXT"))
+        db.commit()
 
 
 def normalize_spaces(value: str | None) -> str | None:
@@ -131,6 +142,7 @@ def normalize_student_payload(payload: schemas.StudentBase) -> dict:
     data["class_name"] = normalize_form(data["class_name"])
     data["guardian_name"] = normalize_person_name(data.get("guardian_name"))
     data["guardian_contact"] = normalize_spaces(data.get("guardian_contact"))
+    data["email_address"] = normalize_spaces(data.get("email_address"))
     data["address"] = normalize_spaces(data.get("address"))
     data["admission_number"] = normalize_spaces(data.get("admission_number"))
     return data
@@ -193,6 +205,7 @@ def serialize_exam_record(record: models.ExamRecord) -> dict:
         "student_id": record.student_id,
         "student_name": record.student_name,
         "class_name": record.class_name,
+        "post_office_address": record.post_office_address,
         "exam_name": record.exam_name,
         "term": record.term,
         "subject_scores": scores,
@@ -233,6 +246,7 @@ def get_or_create_default_admin(db: Session) -> models.User:
         password_hash=hash_password("admin123"),
         role="admin",
         status="approved",
+        must_change_password=True,
         full_name="System Administrator",
     )
     db.add(admin)
@@ -415,6 +429,7 @@ def signup_user(db: Session, payload: schemas.UserSignup) -> models.User:
         password_hash=hash_password(payload.password),
         role=payload.role,
         status=status,
+        must_change_password=True,
         full_name=normalize_person_name(payload.full_name),
         profile_image=payload.profile_image,
     )
@@ -451,6 +466,17 @@ def login_user(db: Session, username: str, password: str) -> models.User | None:
         user.password_hash = hash_password(password)
         db.commit()
         db.refresh(user)
+    return user
+
+
+def change_password(db: Session, user: models.User, current_password: str, new_password: str) -> models.User | None:
+    is_valid, _ = verify_password(current_password, user.password_hash)
+    if not is_valid:
+        return None
+    user.password_hash = hash_password(new_password)
+    user.must_change_password = False
+    db.commit()
+    db.refresh(user)
     return user
 
 
@@ -756,6 +782,7 @@ def create_exam_record(db: Session, payload: schemas.ExamRecordCreate, current_u
         student_id=payload.student_id,
         student_name=normalize_person_name(payload.student_name),
         class_name=normalized_class,
+        post_office_address=normalize_spaces(payload.post_office_address),
         exam_name=normalize_spaces(payload.exam_name) or "Main Exam",
         term=normalize_term(payload.term),
         subject_scores=json.dumps(scores),
@@ -789,6 +816,7 @@ def update_exam_record(db: Session, record_id: int, payload: schemas.ExamRecordU
     record.student_id = payload.student_id
     record.student_name = normalize_person_name(payload.student_name)
     record.class_name = normalized_class
+    record.post_office_address = normalize_spaces(payload.post_office_address)
     record.exam_name = normalize_spaces(payload.exam_name) or "Main Exam"
     record.term = normalize_term(payload.term)
     record.subject_scores = json.dumps(scores)

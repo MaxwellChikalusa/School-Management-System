@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import ExportMenu from "../components/ExportMenu";
 import { createAttendance, deleteAttendance, fetchAttendance, fetchStudents, updateAttendance } from "../api";
 import { groupStudentsByForm, matchesSearch } from "../constants/schoolData";
-import { useConfirmDialog } from "../context/ConfirmDialogContext";
+import { useConfirmDialog, useSuccessDialog } from "../context/ConfirmDialogContext";
 import "../styles/attendance.css";
 
 const initialForm = {
@@ -14,6 +14,7 @@ const initialForm = {
 
 export default function Attendance() {
   const confirm = useConfirmDialog();
+  const showSuccess = useSuccessDialog();
   const [students, setStudents] = useState([]);
   const [records, setRecords] = useState([]);
   const [editingId, setEditingId] = useState(null);
@@ -53,8 +54,10 @@ export default function Attendance() {
             const payload = { ...form, student_id: Number(form.student_id) };
             if (editingId) {
               await updateAttendance(editingId, payload);
+              showSuccess({ title: "Updated successfully", message: "Attendance record was updated successfully." });
             } else {
               await createAttendance(payload);
+              showSuccess({ title: "Saved successfully", message: "Attendance record was saved successfully." });
             }
             setForm(initialForm);
             setEditingId(null);
@@ -116,7 +119,7 @@ export default function Attendance() {
                     <td>{record.status}</td>
                     <td>{record.note || "-"}</td>
                     <td>
-                      <button type="button" onClick={() => {
+                      <button type="button" className={editingId === record.id ? "edit-button-active" : ""} onClick={() => {
                         setEditingId(record.id);
                         setForm({
                           student_id: String(record.student_id),

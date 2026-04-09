@@ -32,7 +32,6 @@ export default function Navbar() {
       </div>
       {currentUser ? (
         <div className="navbar-system-date">
-          <span>D</span>
           <strong>{systemDate}</strong>
         </div>
       ) : null}
