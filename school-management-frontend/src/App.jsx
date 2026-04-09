@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Navigate, Route, Routes } from "react-router-d
 import Navbar from "./components/Navbar";
 import Sidebar from "./components/Sidebar";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { ConfirmDialogProvider } from "./context/ConfirmDialogContext";
 import Attendance from "./pages/Attendance";
 import Dashboard from "./pages/Dashboard";
 import Exams from "./pages/Exams";
@@ -24,7 +25,7 @@ function AppRoutes() {
   return (
     <div className="app-layout">
       <Navbar />
-      <div className="main-layout">
+      <div className={`main-layout${currentUser ? "" : " main-layout-public"}`}>
         {currentUser && <Sidebar />}
         <main className={`page-content${currentUser ? "" : " page-content-full"}`}>
           <Routes>
@@ -47,9 +48,11 @@ function AppRoutes() {
 export default function App() {
   return (
     <AuthProvider>
-      <Router>
-        <AppRoutes />
-      </Router>
+      <ConfirmDialogProvider>
+        <Router>
+          <AppRoutes />
+        </Router>
+      </ConfirmDialogProvider>
     </AuthProvider>
   );
 }

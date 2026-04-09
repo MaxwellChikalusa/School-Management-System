@@ -18,14 +18,14 @@ export default function ExportMenu({ title, filename, rows }) {
 
   return (
     <div className="export-menu" ref={rootRef}>
-      <button type="button" onClick={() => setOpen((current) => !current)}>
+      <button type="button" className="export-trigger-button" onClick={() => setOpen((current) => !current)}>
         Export
       </button>
       {open ? (
         <div className="export-menu-panel">
-          <button type="button" onClick={() => handleQuickExport(title, filename, rows, "excel")}>Export Excel</button>
-          <button type="button" onClick={() => handleQuickExport(title, filename, rows, "word")}>Export Word</button>
-          <button type="button" onClick={() => handleQuickExport(title, filename, rows, "print")}>Print</button>
+          <button type="button" className="export-option-button export-option-excel" onClick={() => handleQuickExport(title, filename, rows, "excel")}>Export Excel</button>
+          <button type="button" className="export-option-button export-option-pdf" onClick={() => handleQuickExport(title, filename, rows, "pdf")}>Export PDF</button>
+          <button type="button" className="export-option-button export-option-print" onClick={() => handleQuickExport(title, filename, rows, "print")}>Print</button>
         </div>
       ) : null}
     </div>

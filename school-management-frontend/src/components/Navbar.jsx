@@ -27,12 +27,12 @@ export default function Navbar() {
   return (
     <header className="navbar">
       <div className="navbar-brand">
-        <p className="navbar-kicker">School Management Suite</p>
-        <h1>Examz Control Room</h1>
+        <p className="navbar-kicker">School Management Systsem</p>
+        <h1>School Management Systsem</h1>
       </div>
       {currentUser ? (
         <div className="navbar-system-date">
-          <span>System Date</span>
+          <span>D</span>
           <strong>{systemDate}</strong>
         </div>
       ) : null}

@@ -1,10 +1,27 @@
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
 import { loginUser, signupUser } from "../api";
 
 const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
-  const [currentUser, setCurrentUser] = useState(null);
+  const [currentUser, setCurrentUser] = useState(() => {
+    const savedUser = window.localStorage.getItem("sms_current_user");
+    if (!savedUser) return null;
+    try {
+      return JSON.parse(savedUser);
+    } catch {
+      window.localStorage.removeItem("sms_current_user");
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    if (currentUser) {
+      window.localStorage.setItem("sms_current_user", JSON.stringify(currentUser));
+      return;
+    }
+    window.localStorage.removeItem("sms_current_user");
+  }, [currentUser]);
 
   const signup = async (payload) => {
     const result = await signupUser(payload);

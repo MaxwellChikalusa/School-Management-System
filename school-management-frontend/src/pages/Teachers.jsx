@@ -1,13 +1,18 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import ExportMenu from "../components/ExportMenu";
 import {
-  approveTeacherAccount,
+  approveAccessRequest,
+  approveTeacherAccountWithForms,
+  createAccessRequest,
   createAdmin,
+  disableTeacherAccount,
+  enableTeacherAccount,
+  fetchAccessRequests,
   fetchPendingTeachers,
   fetchTeachers,
   updateTeacher,
 } from "../api";
-import { SECONDARY_SUBJECTS, matchesSearch } from "../constants/schoolData";
+import { FORM_OPTIONS, SECONDARY_SUBJECTS, matchesSearch } from "../constants/schoolData";
 import { useAuth } from "../context/AuthContext";
 import "../styles/teachers.css";
 
@@ -27,20 +32,48 @@ const initialAdmin = {
   role: "admin",
 };
 
+const initialRequest = {
+  requested_subject: "",
+  requested_forms: [],
+  note: "",
+};
+
 export default function Teachers() {
   const { currentUser } = useAuth();
   const [teachers, setTeachers] = useState([]);
+  const [teacherDrafts, setTeacherDrafts] = useState({});
   const [pendingTeachers, setPendingTeachers] = useState([]);
+  const [approvalForms, setApprovalForms] = useState({});
+  const [accessRequests, setAccessRequests] = useState([]);
   const [adminForm, setAdminForm] = useState(initialAdmin);
+  const [requestForm, setRequestForm] = useState(initialRequest);
   const [query, setQuery] = useState("");
 
   async function loadData() {
-    const [teacherList, pendingList] = await Promise.all([
+    const [teacherList, pendingList, requestList] = await Promise.all([
       fetchTeachers(),
-      fetchPendingTeachers(),
+      currentUser?.role === "admin" ? fetchPendingTeachers() : Promise.resolve([]),
+      fetchAccessRequests(),
     ]);
     setTeachers(teacherList);
+    setTeacherDrafts(
+      Object.fromEntries(
+        teacherList.map((teacher) => [
+          teacher.id,
+          {
+            ...teacher,
+            assigned_forms: teacher.assigned_forms || [],
+          },
+        ])
+      )
+    );
     setPendingTeachers(pendingList);
+    setApprovalForms(
+      Object.fromEntries(
+        pendingList.map((teacher) => [teacher.id, FORM_OPTIONS])
+      )
+    );
+    setAccessRequests(requestList);
   }
 
   useEffect(() => {
@@ -50,6 +83,14 @@ export default function Teachers() {
   const filteredTeachers = teachers.filter((teacher) =>
     matchesSearch([teacher.full_name, teacher.subject, teacher.email, teacher.phone], query)
   );
+
+  const visibleRequests = useMemo(
+    () => accessRequests.filter((requestItem) => requestItem.status === "pending"),
+    [accessRequests]
+  );
+
+  const toggleForm = (forms, formName) =>
+    forms.includes(formName) ? forms.filter((item) => item !== formName) : [...forms, formName];
 
   return (
     <section className="page-shell">
@@ -75,51 +116,113 @@ export default function Teachers() {
               <thead>
                 <tr>
                   <th>Teacher</th>
-                  <th>Subject</th>
+                  <th>Main Subject</th>
+                  <th>Approved Subjects</th>
+                  <th>Assigned Forms</th>
                   <th>Status</th>
                   <th>Image</th>
-                  <th>Edit Subject</th>
-                  <th>Update Image</th>
+                  <th>Update</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredTeachers.map((teacher) => (
-                  <tr key={teacher.id}>
-                    <td>{teacher.full_name}</td>
-                    <td>{teacher.subject}</td>
-                    <td>{teacher.approved ? "Approved" : "Pending"}</td>
-                    <td>
-                      {teacher.profile_image ? (
-                        <img className="avatar-thumb" src={teacher.profile_image} alt={teacher.full_name} />
-                      ) : "No image"}
-                    </td>
-                    <td>
-                      <select
-                        value={teacher.subject}
-                        onChange={async (event) => {
-                          await updateTeacher(teacher.id, { ...teacher, subject: event.target.value });
-                          loadData();
-                        }}
-                      >
-                        {SECONDARY_SUBJECTS.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
-                      </select>
-                    </td>
-                    <td>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={async (event) => {
-                          const file = event.target.files?.[0];
-                          if (!file) return;
-                          const image = await fileToBase64(file);
-                          await updateTeacher(teacher.id, { ...teacher, profile_image: image });
-                          loadData();
-                        }}
-                      />
-                    </td>
-                  </tr>
-                ))}
-                {!filteredTeachers.length ? <tr><td colSpan="6">No teachers found.</td></tr> : null}
+                {filteredTeachers.map((teacher) => {
+                  const draft = teacherDrafts[teacher.id] || teacher;
+                  return (
+                    <tr key={teacher.id}>
+                      <td>{teacher.full_name}</td>
+                      <td>
+                        <select
+                          value={draft.subject}
+                          disabled={currentUser?.role !== "admin"}
+                          onChange={(event) =>
+                            setTeacherDrafts((current) => ({
+                              ...current,
+                              [teacher.id]: { ...draft, subject: event.target.value },
+                            }))
+                          }
+                        >
+                          {SECONDARY_SUBJECTS.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
+                        </select>
+                      </td>
+                      <td>{(teacher.approved_subjects || []).join(", ") || teacher.subject}</td>
+                      <td>
+                        <div className="teacher-form-grid">
+                          {FORM_OPTIONS.map((formName) => (
+                            <label key={formName} className="checkbox-row teacher-form-item">
+                              <input
+                                type="checkbox"
+                                checked={(draft.assigned_forms || []).includes(formName)}
+                                disabled={currentUser?.role !== "admin"}
+                                onChange={() =>
+                                  setTeacherDrafts((current) => ({
+                                    ...current,
+                                    [teacher.id]: {
+                                      ...draft,
+                                      assigned_forms: toggleForm(draft.assigned_forms || [], formName),
+                                    },
+                                  }))
+                                }
+                              />
+                              {formName}
+                            </label>
+                          ))}
+                        </div>
+                      </td>
+                      <td>{teacher.account_status === "disabled" ? "Disabled" : teacher.approved ? "Approved" : "Pending"}</td>
+                      <td>
+                        {teacher.profile_image ? (
+                          <img className="avatar-thumb" src={teacher.profile_image} alt={teacher.full_name} />
+                        ) : "No image"}
+                      </td>
+                      <td>
+                        <div className="stack-list">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            disabled={currentUser?.role !== "admin"}
+                            onChange={async (event) => {
+                              const file = event.target.files?.[0];
+                              if (!file) return;
+                              const image = await fileToBase64(file);
+                              setTeacherDrafts((current) => ({
+                                ...current,
+                                [teacher.id]: { ...draft, profile_image: image },
+                              }));
+                            }}
+                          />
+                          <button
+                            type="button"
+                            disabled={currentUser?.role !== "admin"}
+                            onClick={async () => {
+                              await updateTeacher(teacher.id, draft);
+                              loadData();
+                            }}
+                          >
+                            Save Changes
+                          </button>
+                          {teacher.user_id ? (
+                            <button
+                              type="button"
+                              className={teacher.account_status === "disabled" ? "" : "danger-button"}
+                              disabled={currentUser?.role !== "admin"}
+                              onClick={async () => {
+                                if (teacher.account_status === "disabled") {
+                                  await enableTeacherAccount(teacher.user_id);
+                                } else {
+                                  await disableTeacherAccount(teacher.user_id);
+                                }
+                                loadData();
+                              }}
+                            >
+                              {teacher.account_status === "disabled" ? "Enable Account" : "Disable Account"}
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!filteredTeachers.length ? <tr><td colSpan="7">No teachers found.</td></tr> : null}
               </tbody>
             </table>
           </div>
@@ -130,22 +233,115 @@ export default function Teachers() {
           {currentUser?.role !== "admin" ? <p>Only admins can approve teacher accounts.</p> : null}
           <div className="stack-list">
             {pendingTeachers.map((teacher) => (
-              <div key={teacher.id} className="list-card">
+              <div key={teacher.id} className="list-card list-card-column">
                 <div>
                   <strong>{teacher.full_name}</strong>
                   <p>@{teacher.username}</p>
                 </div>
                 {currentUser?.role === "admin" ? (
-                  <button type="button" onClick={async () => {
-                    await approveTeacherAccount(teacher.id);
-                    loadData();
-                  }}>
-                    Approve
-                  </button>
+                  <>
+                    <div className="teacher-form-grid">
+                      {FORM_OPTIONS.map((formName) => (
+                        <label key={formName} className="checkbox-row teacher-form-item">
+                          <input
+                            type="checkbox"
+                            checked={(approvalForms[teacher.id] || []).includes(formName)}
+                            onChange={() =>
+                              setApprovalForms((current) => ({
+                                ...current,
+                                [teacher.id]: toggleForm(current[teacher.id] || [], formName),
+                              }))
+                            }
+                          />
+                          {formName}
+                        </label>
+                      ))}
+                    </div>
+                    <button type="button" onClick={async () => {
+                      await approveTeacherAccountWithForms(teacher.id, approvalForms[teacher.id] || FORM_OPTIONS);
+                      loadData();
+                    }}>
+                      Approve Teacher
+                    </button>
+                  </>
                 ) : null}
               </div>
             ))}
             {!pendingTeachers.length ? <p>No pending teacher approvals.</p> : null}
+          </div>
+        </div>
+
+        <div className="panel">
+          <h3>{currentUser?.role === "admin" ? "Pending Subject Access Requests" : "Request Another Subject Access"}</h3>
+          {currentUser?.role === "teacher" ? (
+            <form
+              className="form-panel"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                await createAccessRequest(requestForm);
+                setRequestForm(initialRequest);
+                loadData();
+              }}
+            >
+              <div className="form-grid">
+                <select
+                  value={requestForm.requested_subject}
+                  onChange={(event) => setRequestForm({ ...requestForm, requested_subject: event.target.value })}
+                  required
+                >
+                  <option value="">Select subject</option>
+                  {SECONDARY_SUBJECTS.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
+                </select>
+                <input
+                  placeholder="Short note for admin"
+                  value={requestForm.note}
+                  onChange={(event) => setRequestForm({ ...requestForm, note: event.target.value })}
+                />
+              </div>
+              <div className="teacher-form-grid">
+                {FORM_OPTIONS.map((formName) => (
+                  <label key={formName} className="checkbox-row teacher-form-item">
+                    <input
+                      type="checkbox"
+                      checked={requestForm.requested_forms.includes(formName)}
+                      onChange={() =>
+                        setRequestForm((current) => ({
+                          ...current,
+                          requested_forms: toggleForm(current.requested_forms, formName),
+                        }))
+                      }
+                    />
+                    {formName}
+                  </label>
+                ))}
+              </div>
+              <div className="button-row">
+                <button type="submit">Send Request</button>
+              </div>
+            </form>
+          ) : null}
+
+          <div className="stack-list">
+            {visibleRequests.map((requestItem) => (
+              <div key={requestItem.id} className="list-card">
+                <div>
+                  <strong>{requestItem.teacher_name}</strong>
+                  <p>{requestItem.requested_subject} | {(requestItem.requested_forms || []).join(", ")}</p>
+                  <p>{requestItem.note || "No note"}</p>
+                </div>
+                {currentUser?.role === "admin" ? (
+                  <button type="button" onClick={async () => {
+                    await approveAccessRequest(requestItem.id);
+                    loadData();
+                  }}>
+                    Approve Access
+                  </button>
+                ) : (
+                  <span>{requestItem.status}</span>
+                )}
+              </div>
+            ))}
+            {!visibleRequests.length ? <p>No pending access requests.</p> : null}
           </div>
         </div>
 

@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
 import ExportMenu from "../components/ExportMenu";
-import { createExamRecord, deleteExamRecord, fetchExamRecords, fetchStudents, updateExamRecord } from "../api";
-import { FORM_OPTIONS, SECONDARY_SUBJECTS, TERM_OPTIONS, matchesSearch } from "../constants/schoolData";
+import { createExamRecord, deleteExamRecord, fetchExamRecords, fetchPermissionContext, fetchStudents, updateExamRecord } from "../api";
+import { FORM_OPTIONS, SECONDARY_SUBJECTS, TERM_OPTIONS, groupStudentsByForm, matchesSearch } from "../constants/schoolData";
+import { useAuth } from "../context/AuthContext";
+import { useConfirmDialog } from "../context/ConfirmDialogContext";
 import "../styles/exams.css";
-import { confirmDelete } from "../utils/confirmDelete";
 
 const defaultSubjects = [
   { subject: "English Language", score: "" },
@@ -22,16 +23,27 @@ const createInitialForm = () => ({
 });
 
 export default function Exams() {
+  const { currentUser } = useAuth();
+  const confirm = useConfirmDialog();
   const [students, setStudents] = useState([]);
   const [records, setRecords] = useState([]);
+  const [permission, setPermission] = useState({ allowed_forms: [], allowed_subjects: [] });
   const [form, setForm] = useState(createInitialForm);
   const [editingId, setEditingId] = useState(null);
   const [query, setQuery] = useState("");
 
   async function loadData() {
-    const [studentList, examList] = await Promise.all([fetchStudents(), fetchExamRecords()]);
+    const [studentList, examList, permissionContext] = await Promise.all([
+      fetchStudents(),
+      fetchExamRecords(),
+      fetchPermissionContext().catch(() => ({
+        allowed_forms: FORM_OPTIONS,
+        allowed_subjects: SECONDARY_SUBJECTS,
+      })),
+    ]);
     setStudents(studentList);
     setRecords(examList);
+    setPermission(permissionContext);
   }
 
   useEffect(() => {
@@ -41,6 +53,19 @@ export default function Exams() {
   const filteredRecords = records.filter((record) =>
     matchesSearch([record.student_name, record.class_name, record.exam_name, record.term], query)
   );
+  const studentGroups = groupStudentsByForm(students);
+  const formOptions =
+    currentUser?.role === "admin"
+      ? FORM_OPTIONS
+      : permission.allowed_forms?.length
+        ? permission.allowed_forms
+        : FORM_OPTIONS;
+  const subjectOptions =
+    currentUser?.role === "admin"
+      ? SECONDARY_SUBJECTS
+      : permission.allowed_subjects?.length
+        ? permission.allowed_subjects
+        : SECONDARY_SUBJECTS;
 
   return (
     <section className="page-shell">
@@ -48,7 +73,7 @@ export default function Exams() {
         <div>
           <p className="eyebrow">Exams</p>
           <h2>Average, ranking and result labels</h2>
-          <p className="page-note">Subjects and students are now selected from the existing school records.</p>
+          {/* <p className="page-note">Subjects and students are now selected from the existing school records.</p> */}
         </div>
         <ExportMenu title="Exams" filename="exams" rows={filteredRecords} />
       </div>
@@ -92,16 +117,20 @@ export default function Exams() {
               }}
             >
               <option value="">Select student</option>
-              {students.map((student) => (
-                <option key={student.id} value={student.id}>
-                  {student.full_name} ({student.class_name})
-                </option>
+              {studentGroups.map((group) => (
+                <optgroup key={group.formName} label={group.formName}>
+                  {group.students.map((student) => (
+                    <option key={student.id} value={student.id}>
+                      {student.full_name}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
             <input placeholder="Student name" value={form.student_name} onChange={(event) => setForm({ ...form, student_name: event.target.value })} required />
             <select value={form.class_name} onChange={(event) => setForm({ ...form, class_name: event.target.value })} required>
               <option value="">Select form</option>
-              {FORM_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+              {formOptions.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
             <input placeholder="Exam name" value={form.exam_name} onChange={(event) => setForm({ ...form, exam_name: event.target.value })} required />
             <select value={form.term} onChange={(event) => setForm({ ...form, term: event.target.value })}>
@@ -121,7 +150,7 @@ export default function Exams() {
                   }}
                 >
                   <option value="">Select subject</option>
-                  {SECONDARY_SUBJECTS.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
+                  {subjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
                 </select>
                 <input
                   type="number"
@@ -198,7 +227,12 @@ export default function Exams() {
                         Edit
                       </button>
                       <button type="button" className="danger-button" onClick={async () => {
-                        if (!confirmDelete(record.student_name || "this exam record")) return;
+                        const approved = await confirm({
+                          title: "Delete exam record?",
+                          message: `Remove the saved results for ${record.student_name || "this student"}?`,
+                          confirmLabel: "Delete Result",
+                        });
+                        if (!approved) return;
                         await deleteExamRecord(record.id);
                         loadData();
                       }}>

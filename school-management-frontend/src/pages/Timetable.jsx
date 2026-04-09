@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import {
   createTimetable,
   deleteTimetable,
+  fetchPermissionContext,
   fetchTeachers,
   fetchTimetables,
   postTimetable,
@@ -9,8 +10,9 @@ import {
 } from "../api";
 import ExportMenu from "../components/ExportMenu";
 import { FORM_OPTIONS, SECONDARY_SUBJECTS, matchesSearch } from "../constants/schoolData";
+import { useAuth } from "../context/AuthContext";
+import { useConfirmDialog } from "../context/ConfirmDialogContext";
 import "../styles/timetable.css";
-import { confirmDelete } from "../utils/confirmDelete";
 
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const timeOptions = ["07:00", "08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"];
@@ -49,16 +51,27 @@ function groupEntriesByDay(entries) {
 }
 
 export default function Timetable() {
+  const { currentUser } = useAuth();
+  const confirm = useConfirmDialog();
   const [teachers, setTeachers] = useState([]);
   const [timetables, setTimetables] = useState([]);
+  const [permission, setPermission] = useState({ allowed_forms: [], allowed_subjects: [] });
   const [form, setForm] = useState(createInitialForm);
   const [editingId, setEditingId] = useState(null);
   const [query, setQuery] = useState("");
 
   async function loadData() {
-    const [teacherList, timetableList] = await Promise.all([fetchTeachers(), fetchTimetables()]);
+    const [teacherList, timetableList, permissionContext] = await Promise.all([
+      fetchTeachers(),
+      fetchTimetables(),
+      fetchPermissionContext().catch(() => ({
+        allowed_forms: FORM_OPTIONS,
+        allowed_subjects: SECONDARY_SUBJECTS,
+      })),
+    ]);
     setTeachers(teacherList);
     setTimetables(timetableList);
+    setPermission(permissionContext);
   }
 
   useEffect(() => {
@@ -104,6 +117,18 @@ export default function Timetable() {
       note: entry.note,
     }))
   );
+  const formOptions =
+    currentUser?.role === "admin"
+      ? FORM_OPTIONS
+      : permission.allowed_forms?.length
+        ? permission.allowed_forms
+        : FORM_OPTIONS;
+  const subjectOptions =
+    currentUser?.role === "admin"
+      ? SECONDARY_SUBJECTS
+      : permission.allowed_subjects?.length
+        ? permission.allowed_subjects
+        : SECONDARY_SUBJECTS;
 
   return (
     <section className="page-shell">
@@ -127,7 +152,7 @@ export default function Timetable() {
             </select>
             <select value={form.class_name} onChange={(event) => setForm({ ...form, class_name: event.target.value })} required>
               <option value="">Select form</option>
-              {FORM_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+              {formOptions.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
             <input placeholder="Note" value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} />
           </div>
@@ -163,7 +188,7 @@ export default function Timetable() {
                     setForm({ ...form, entries: nextEntries });
                   }}>
                     <option value="">Select subject</option>
-                    {SECONDARY_SUBJECTS.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
+                    {subjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
                   </select>
                   <select value={entry.teacher_name} onChange={(event) => {
                     const nextEntries = [...form.entries];
@@ -238,7 +263,12 @@ export default function Timetable() {
                       Post
                     </button>
                     <button type="button" className="danger-button" onClick={async () => {
-                      if (!confirmDelete(timetable.title || "this timetable")) return;
+                      const approved = await confirm({
+                        title: "Delete timetable?",
+                        message: `Remove ${timetable.title || "this timetable"} from the system?`,
+                        confirmLabel: "Delete Timetable",
+                      });
+                      if (!approved) return;
                       await deleteTimetable(timetable.id);
                       loadData();
                     }}>

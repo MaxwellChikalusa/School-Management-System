@@ -28,6 +28,19 @@ export const SECONDARY_SUBJECTS = [
   "Technical Drawing",
 ];
 
+export function sortForms(forms) {
+  return [...forms].sort((left, right) => FORM_OPTIONS.indexOf(left) - FORM_OPTIONS.indexOf(right));
+}
+
+export function groupStudentsByForm(students) {
+  return sortForms(
+    Array.from(new Set((students || []).map((student) => student.class_name).filter(Boolean)))
+  ).map((formName) => ({
+    formName,
+    students: (students || []).filter((student) => student.class_name === formName),
+  }));
+}
+
 export function matchesSearch(values, query) {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return true;

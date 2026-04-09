@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
 import ExportMenu from "../components/ExportMenu";
 import { createFee, deleteFee, fetchFees, fetchStudents, updateFee } from "../api";
-import { matchesSearch } from "../constants/schoolData";
+import { groupStudentsByForm, matchesSearch } from "../constants/schoolData";
+import { useConfirmDialog } from "../context/ConfirmDialogContext";
 import "../styles/fees.css";
-import { confirmDelete } from "../utils/confirmDelete";
 
 const initialForm = {
   student_id: "",
@@ -15,6 +15,7 @@ const initialForm = {
 };
 
 export default function Fees() {
+  const confirm = useConfirmDialog();
   const [students, setStudents] = useState([]);
   const [fees, setFees] = useState([]);
   const [form, setForm] = useState(initialForm);
@@ -32,6 +33,7 @@ export default function Fees() {
   }, []);
 
   const filteredFees = fees.filter((fee) => matchesSearch([fee.student_name, fee.note], query));
+  const studentGroups = groupStudentsByForm(students);
 
   return (
     <section className="page-shell">
@@ -80,10 +82,14 @@ export default function Fees() {
               }}
             >
               <option value="">Select student</option>
-              {students.map((student) => (
-                <option key={student.id} value={student.id}>
-                  {student.full_name}
-                </option>
+              {studentGroups.map((group) => (
+                <optgroup key={group.formName} label={group.formName}>
+                  {group.students.map((student) => (
+                    <option key={student.id} value={student.id}>
+                      {student.full_name}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
             <input placeholder="Name" value={form.student_name} onChange={(event) => setForm({ ...form, student_name: event.target.value })} required />
@@ -146,7 +152,12 @@ export default function Fees() {
                         Edit
                       </button>
                       <button type="button" className="danger-button" onClick={async () => {
-                        if (!confirmDelete(fee.student_name || "this fees record")) return;
+                        const approved = await confirm({
+                          title: "Delete fee record?",
+                          message: `Remove the fee entry for ${fee.student_name || "this student"}?`,
+                          confirmLabel: "Delete Record",
+                        });
+                        if (!approved) return;
                         await deleteFee(fee.id);
                         loadData();
                       }}>

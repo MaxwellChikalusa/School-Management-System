@@ -1,6 +1,6 @@
-import hashlib
 import json
 
+import bcrypt
 from sqlalchemy import func, inspect, text
 from sqlalchemy.orm import Session
 
@@ -37,7 +37,26 @@ SUBJECT_LOOKUP = {subject.casefold(): subject for subject in SECONDARY_SUBJECTS}
 
 
 def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def legacy_hash_password(password: str) -> str:
+    import hashlib
+
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def verify_password(password: str, stored_hash: str) -> tuple[bool, bool]:
+    if not stored_hash:
+        return False, False
+
+    try:
+        if stored_hash.startswith("$2"):
+            return bcrypt.checkpw(password.encode("utf-8"), stored_hash.encode("utf-8")), False
+    except ValueError:
+        return False, False
+
+    return legacy_hash_password(password) == stored_hash, True
 
 
 def ensure_schema(db: Session) -> None:
@@ -125,6 +144,11 @@ def normalize_teacher_payload(payload: schemas.TeacherBase) -> dict:
     data["phone"] = normalize_spaces(data.get("phone"))
     data["email"] = normalize_spaces(data.get("email"))
     data["qualification"] = normalize_spaces(data.get("qualification"))
+    data["assigned_forms"] = [
+        normalized
+        for form_name in data.get("assigned_forms", [])
+        if (normalized := normalize_form(form_name))
+    ]
     return data
 
 
@@ -217,6 +241,169 @@ def get_or_create_default_admin(db: Session) -> models.User:
     return admin
 
 
+def get_teacher_by_user_id(db: Session, user_id: int | None) -> models.Teacher | None:
+    if not user_id:
+        return None
+    return db.query(models.Teacher).filter(models.Teacher.user_id == user_id).first()
+
+
+def ensure_access_record(db: Session, teacher_id: int, subject: str, form_name: str) -> None:
+    existing = (
+        db.query(models.TeacherSubjectAccess)
+        .filter(
+            models.TeacherSubjectAccess.teacher_id == teacher_id,
+            models.TeacherSubjectAccess.subject == subject,
+            models.TeacherSubjectAccess.form_name == form_name,
+        )
+        .first()
+    )
+    if existing:
+        return
+    db.add(models.TeacherSubjectAccess(teacher_id=teacher_id, subject=subject, form_name=form_name))
+
+
+def sync_primary_subject_access(db: Session, teacher: models.Teacher, forms: list[str]) -> None:
+    primary_subject = normalize_subject(teacher.subject) or "General"
+    normalized_forms = sorted(
+        {normalize_form(form_name) for form_name in forms if normalize_form(form_name)},
+        key=lambda item: FORM_OPTIONS.index(item) if item in FORM_OPTIONS else 99,
+    )
+    existing = (
+        db.query(models.TeacherSubjectAccess)
+        .filter(
+            models.TeacherSubjectAccess.teacher_id == teacher.id,
+            models.TeacherSubjectAccess.subject == primary_subject,
+        )
+        .all()
+    )
+    existing_forms = {item.form_name for item in existing}
+
+    for access in existing:
+        if access.form_name not in normalized_forms:
+            db.delete(access)
+
+    for form_name in normalized_forms:
+        if form_name not in existing_forms:
+            ensure_access_record(db, teacher.id, primary_subject, form_name)
+
+
+def get_teacher_accesses(db: Session, teacher_id: int) -> list[models.TeacherSubjectAccess]:
+    return (
+        db.query(models.TeacherSubjectAccess)
+        .filter(models.TeacherSubjectAccess.teacher_id == teacher_id)
+        .order_by(models.TeacherSubjectAccess.subject.asc(), models.TeacherSubjectAccess.form_name.asc())
+        .all()
+    )
+
+
+def serialize_teacher(db: Session, teacher: models.Teacher) -> dict:
+    accesses = get_teacher_accesses(db, teacher.id)
+    primary_subject = normalize_subject(teacher.subject) or "General"
+    user = db.query(models.User).filter(models.User.id == teacher.user_id).first() if teacher.user_id else None
+    assigned_forms = sorted(
+        {
+            access.form_name
+            for access in accesses
+            if access.subject.casefold() == primary_subject.casefold()
+        },
+        key=lambda item: FORM_OPTIONS.index(item) if item in FORM_OPTIONS else 99,
+    )
+    approved_subjects = sorted({access.subject for access in accesses}, key=str.casefold)
+    return {
+        "id": teacher.id,
+        "full_name": teacher.full_name,
+        "sex": teacher.sex,
+        "subject": primary_subject,
+        "phone": teacher.phone,
+        "email": teacher.email,
+        "qualification": teacher.qualification,
+        "profile_image": teacher.profile_image,
+        "approved": teacher.approved,
+        "user_id": teacher.user_id,
+        "assigned_forms": assigned_forms,
+        "approved_subjects": approved_subjects,
+        "account_status": user.status if user else ("approved" if teacher.approved else "pending"),
+    }
+
+
+def get_allowed_forms_for_user(db: Session, user: models.User) -> list[str]:
+    if user.role == "admin":
+        return FORM_OPTIONS
+    teacher = get_teacher_by_user_id(db, user.id)
+    if not teacher:
+        return []
+    accesses = get_teacher_accesses(db, teacher.id)
+    if teacher.approved and not accesses:
+        sync_primary_subject_access(db, teacher, FORM_OPTIONS)
+        db.commit()
+        accesses = get_teacher_accesses(db, teacher.id)
+    forms = {access.form_name for access in accesses}
+    return sorted(forms, key=lambda item: FORM_OPTIONS.index(item) if item in FORM_OPTIONS else 99)
+
+
+def get_allowed_subjects_for_user(db: Session, user: models.User) -> list[str]:
+    if user.role == "admin":
+        return SECONDARY_SUBJECTS
+    teacher = get_teacher_by_user_id(db, user.id)
+    if not teacher:
+        return []
+    accesses = get_teacher_accesses(db, teacher.id)
+    if teacher.approved and not accesses:
+        sync_primary_subject_access(db, teacher, FORM_OPTIONS)
+        db.commit()
+        accesses = get_teacher_accesses(db, teacher.id)
+    return sorted({access.subject for access in accesses}, key=str.casefold)
+
+
+def get_permission_context(db: Session, user: models.User) -> schemas.PermissionContext:
+    return schemas.PermissionContext(
+        user_id=user.id,
+        role=user.role,
+        allowed_forms=get_allowed_forms_for_user(db, user),
+        allowed_subjects=get_allowed_subjects_for_user(db, user),
+    )
+
+
+def ensure_form_access(db: Session, user: models.User, form_name: str) -> str:
+    normalized_form = normalize_form(form_name)
+    if user.role == "admin":
+        return normalized_form
+    if normalized_form not in get_allowed_forms_for_user(db, user):
+        raise PermissionError("You can only work with students in your approved forms")
+    return normalized_form
+
+
+def ensure_subject_access(db: Session, user: models.User, subject: str) -> str:
+    normalized_subject = normalize_subject(subject) or ""
+    if user.role == "admin":
+        return normalized_subject
+    if normalized_subject not in get_allowed_subjects_for_user(db, user):
+        raise PermissionError("You can only work with your approved subjects")
+    return normalized_subject
+
+
+def get_student_for_user(db: Session, user: models.User, student_id: int) -> models.Student | None:
+    student = db.query(models.Student).filter(models.Student.id == student_id).first()
+    if not student:
+        return None
+    if user.role == "admin":
+        return student
+    return student if student.class_name in get_allowed_forms_for_user(db, user) else None
+
+
+def serialize_access_request(request_item: models.TeacherAccessRequest) -> dict:
+    return {
+        "id": request_item.id,
+        "teacher_id": request_item.teacher_id,
+        "teacher_name": request_item.teacher.full_name if request_item.teacher else "Teacher",
+        "requested_subject": request_item.requested_subject,
+        "requested_forms": json.loads(request_item.requested_forms),
+        "note": request_item.note,
+        "status": request_item.status,
+        "admin_note": request_item.admin_note,
+    }
+
+
 def signup_user(db: Session, payload: schemas.UserSignup) -> models.User:
     existing = db.query(models.User).filter(models.User.username == payload.username).first()
     if existing:
@@ -255,8 +442,15 @@ def signup_user(db: Session, payload: schemas.UserSignup) -> models.User:
 
 def login_user(db: Session, username: str, password: str) -> models.User | None:
     user = db.query(models.User).filter(models.User.username == username).first()
-    if not user or user.password_hash != hash_password(password):
+    if not user:
         return None
+    is_valid, should_upgrade = verify_password(password, user.password_hash)
+    if not is_valid:
+        return None
+    if should_upgrade:
+        user.password_hash = hash_password(password)
+        db.commit()
+        db.refresh(user)
     return user
 
 
@@ -273,7 +467,7 @@ def list_pending_teachers(db: Session) -> list[models.User]:
     )
 
 
-def approve_teacher(db: Session, user_id: int) -> models.User | None:
+def approve_teacher(db: Session, user_id: int, forms: list[str] | None = None) -> models.User | None:
     user = db.query(models.User).filter(models.User.id == user_id, models.User.role == "teacher").first()
     if not user:
         return None
@@ -281,6 +475,7 @@ def approve_teacher(db: Session, user_id: int) -> models.User | None:
     teacher = db.query(models.Teacher).filter(models.Teacher.user_id == user.id).first()
     if teacher:
         teacher.approved = True
+        sync_primary_subject_access(db, teacher, forms or FORM_OPTIONS)
     db.commit()
     db.refresh(user)
     return user
@@ -290,31 +485,51 @@ def create_admin(db: Session, payload: schemas.UserSignup) -> models.User:
     return signup_user(db, payload.model_copy(update={"role": "admin"}))
 
 
-def get_students(db: Session) -> list[models.Student]:
-    return db.query(models.Student).order_by(func.lower(models.Student.full_name).asc()).all()
+def set_teacher_account_status(db: Session, user_id: int, status: str) -> models.User | None:
+    user = db.query(models.User).filter(models.User.id == user_id, models.User.role == "teacher").first()
+    if not user:
+        return None
+    user.status = status
+    teacher = db.query(models.Teacher).filter(models.Teacher.user_id == user.id).first()
+    if teacher:
+        teacher.approved = status == "approved"
+    db.commit()
+    db.refresh(user)
+    return user
 
 
-def create_student(db: Session, payload: schemas.StudentCreate) -> models.Student:
-    student = models.Student(**normalize_student_payload(payload))
+def get_students(db: Session, current_user: models.User) -> list[models.Student]:
+    query = db.query(models.Student)
+    if current_user.role == "teacher":
+        query = query.filter(models.Student.class_name.in_(get_allowed_forms_for_user(db, current_user) or [""]))
+    return query.order_by(models.Student.class_name.asc(), func.lower(models.Student.full_name).asc()).all()
+
+
+def create_student(db: Session, payload: schemas.StudentCreate, current_user: models.User) -> models.Student:
+    data = normalize_student_payload(payload)
+    data["class_name"] = ensure_form_access(db, current_user, data["class_name"])
+    student = models.Student(**data)
     db.add(student)
     db.commit()
     db.refresh(student)
     return student
 
 
-def update_student(db: Session, student_id: int, payload: schemas.StudentUpdate) -> models.Student | None:
-    student = db.query(models.Student).filter(models.Student.id == student_id).first()
+def update_student(db: Session, student_id: int, payload: schemas.StudentUpdate, current_user: models.User) -> models.Student | None:
+    student = get_student_for_user(db, current_user, student_id)
     if not student:
         return None
-    for field, value in normalize_student_payload(payload).items():
+    data = normalize_student_payload(payload)
+    data["class_name"] = ensure_form_access(db, current_user, data["class_name"])
+    for field, value in data.items():
         setattr(student, field, value)
     db.commit()
     db.refresh(student)
     return student
 
 
-def delete_student(db: Session, student_id: int) -> bool:
-    student = db.query(models.Student).filter(models.Student.id == student_id).first()
+def delete_student(db: Session, student_id: int, current_user: models.User) -> bool:
+    student = get_student_for_user(db, current_user, student_id)
     if not student:
         return False
     db.query(models.Attendance).filter(models.Attendance.student_id == student.id).delete()
@@ -325,24 +540,33 @@ def delete_student(db: Session, student_id: int) -> bool:
     return True
 
 
-def get_teachers(db: Session) -> list[models.Teacher]:
-    return db.query(models.Teacher).order_by(func.lower(models.Teacher.full_name).asc()).all()
+def get_teachers(db: Session) -> list[dict]:
+    teachers = db.query(models.Teacher).order_by(func.lower(models.Teacher.full_name).asc()).all()
+    return [serialize_teacher(db, teacher) for teacher in teachers]
 
 
 def create_teacher(db: Session, payload: schemas.TeacherCreate) -> models.Teacher:
-    teacher = models.Teacher(**normalize_teacher_payload(payload))
+    data = normalize_teacher_payload(payload)
+    assigned_forms = data.pop("assigned_forms", [])
+    teacher = models.Teacher(**data)
     db.add(teacher)
     db.commit()
     db.refresh(teacher)
-    return teacher
+    sync_primary_subject_access(db, teacher, assigned_forms or FORM_OPTIONS)
+    db.commit()
+    db.refresh(teacher)
+    return serialize_teacher(db, teacher)
 
 
 def update_teacher(db: Session, teacher_id: int, payload: schemas.TeacherUpdate) -> models.Teacher | None:
     teacher = db.query(models.Teacher).filter(models.Teacher.id == teacher_id).first()
     if not teacher:
         return None
-    for field, value in normalize_teacher_payload(payload).items():
+    data = normalize_teacher_payload(payload)
+    assigned_forms = data.pop("assigned_forms", [])
+    for field, value in data.items():
         setattr(teacher, field, value)
+    sync_primary_subject_access(db, teacher, assigned_forms or FORM_OPTIONS)
     if teacher.user_id:
         user = db.query(models.User).filter(models.User.id == teacher.user_id).first()
         if user:
@@ -350,14 +574,19 @@ def update_teacher(db: Session, teacher_id: int, payload: schemas.TeacherUpdate)
             user.profile_image = teacher.profile_image
     db.commit()
     db.refresh(teacher)
-    return teacher
+    return serialize_teacher(db, teacher)
 
 
-def get_attendance(db: Session) -> list[models.Attendance]:
-    return db.query(models.Attendance).order_by(models.Attendance.date.desc(), models.Attendance.id.desc()).all()
+def get_attendance(db: Session, current_user: models.User) -> list[models.Attendance]:
+    query = db.query(models.Attendance).join(models.Student, models.Attendance.student_id == models.Student.id)
+    if current_user.role == "teacher":
+        query = query.filter(models.Student.class_name.in_(get_allowed_forms_for_user(db, current_user) or [""]))
+    return query.order_by(models.Attendance.date.desc(), models.Attendance.id.desc()).all()
 
 
-def create_attendance(db: Session, payload: schemas.AttendanceCreate) -> models.Attendance:
+def create_attendance(db: Session, payload: schemas.AttendanceCreate, current_user: models.User) -> models.Attendance:
+    if not get_student_for_user(db, current_user, payload.student_id):
+        raise PermissionError("You can only mark attendance for students in your approved forms")
     attendance = models.Attendance(**payload.model_dump())
     db.add(attendance)
     db.commit()
@@ -365,10 +594,12 @@ def create_attendance(db: Session, payload: schemas.AttendanceCreate) -> models.
     return attendance
 
 
-def update_attendance(db: Session, attendance_id: int, payload: schemas.AttendanceUpdate) -> models.Attendance | None:
+def update_attendance(db: Session, attendance_id: int, payload: schemas.AttendanceUpdate, current_user: models.User) -> models.Attendance | None:
     attendance = db.query(models.Attendance).filter(models.Attendance.id == attendance_id).first()
-    if not attendance:
+    if not attendance or not get_student_for_user(db, current_user, attendance.student_id):
         return None
+    if not get_student_for_user(db, current_user, payload.student_id):
+        raise PermissionError("You can only update attendance for students in your approved forms")
     for field, value in payload.model_dump().items():
         setattr(attendance, field, value)
     db.commit()
@@ -376,17 +607,20 @@ def update_attendance(db: Session, attendance_id: int, payload: schemas.Attendan
     return attendance
 
 
-def delete_attendance(db: Session, attendance_id: int) -> bool:
+def delete_attendance(db: Session, attendance_id: int, current_user: models.User) -> bool:
     attendance = db.query(models.Attendance).filter(models.Attendance.id == attendance_id).first()
-    if not attendance:
+    if not attendance or not get_student_for_user(db, current_user, attendance.student_id):
         return False
     db.delete(attendance)
     db.commit()
     return True
 
 
-def get_fees(db: Session) -> list[dict]:
-    fees = db.query(models.Fee).order_by(func.lower(models.Fee.student_name).asc()).all()
+def get_fees(db: Session, current_user: models.User) -> list[dict]:
+    query = db.query(models.Fee).outerjoin(models.Student, models.Fee.student_id == models.Student.id)
+    if current_user.role == "teacher":
+        query = query.filter(models.Student.class_name.in_(get_allowed_forms_for_user(db, current_user) or [""]))
+    fees = query.order_by(func.lower(models.Fee.student_name).asc()).all()
     return [serialize_fee(item) for item in fees]
 
 
@@ -403,8 +637,10 @@ def serialize_fee(fee: models.Fee) -> dict:
     }
 
 
-def create_fee(db: Session, payload: schemas.FeeCreate) -> dict:
+def create_fee(db: Session, payload: schemas.FeeCreate, current_user: models.User) -> dict:
     data = payload.model_dump()
+    if data["student_id"] and not get_student_for_user(db, current_user, data["student_id"]):
+        raise PermissionError("You can only manage fees for students in your approved forms")
     data["student_name"] = normalize_person_name(data["student_name"])
     data["note"] = normalize_spaces(data.get("note"))
     fee = models.Fee(**data)
@@ -414,11 +650,15 @@ def create_fee(db: Session, payload: schemas.FeeCreate) -> dict:
     return serialize_fee(fee)
 
 
-def update_fee(db: Session, fee_id: int, payload: schemas.FeeUpdate) -> dict | None:
+def update_fee(db: Session, fee_id: int, payload: schemas.FeeUpdate, current_user: models.User) -> dict | None:
     fee = db.query(models.Fee).filter(models.Fee.id == fee_id).first()
     if not fee:
         return None
+    if fee.student_id and not get_student_for_user(db, current_user, fee.student_id):
+        return None
     data = payload.model_dump()
+    if data["student_id"] and not get_student_for_user(db, current_user, data["student_id"]):
+        raise PermissionError("You can only manage fees for students in your approved forms")
     data["student_name"] = normalize_person_name(data["student_name"])
     data["note"] = normalize_spaces(data.get("note"))
     for field, value in data.items():
@@ -428,9 +668,9 @@ def update_fee(db: Session, fee_id: int, payload: schemas.FeeUpdate) -> dict | N
     return serialize_fee(fee)
 
 
-def delete_fee(db: Session, fee_id: int) -> bool:
+def delete_fee(db: Session, fee_id: int, current_user: models.User) -> bool:
     fee = db.query(models.Fee).filter(models.Fee.id == fee_id).first()
-    if not fee:
+    if not fee or (fee.student_id and not get_student_for_user(db, current_user, fee.student_id)):
         return False
     db.delete(fee)
     db.commit()
@@ -497,17 +737,25 @@ def recalculate_exam_rankings(db: Session, class_name: str, exam_name: str) -> l
     return records
 
 
-def get_exam_records(db: Session) -> list[models.ExamRecord]:
-    records = db.query(models.ExamRecord).order_by(models.ExamRecord.class_name.asc(), models.ExamRecord.rank.asc()).all()
+def get_exam_records(db: Session, current_user: models.User) -> list[models.ExamRecord]:
+    query = db.query(models.ExamRecord)
+    if current_user.role == "teacher":
+        query = query.filter(models.ExamRecord.class_name.in_(get_allowed_forms_for_user(db, current_user) or [""]))
+    records = query.order_by(models.ExamRecord.class_name.asc(), models.ExamRecord.rank.asc()).all()
     return [serialize_exam_record(record) for record in records]
 
 
-def create_exam_record(db: Session, payload: schemas.ExamRecordCreate) -> models.ExamRecord:
+def create_exam_record(db: Session, payload: schemas.ExamRecordCreate, current_user: models.User) -> models.ExamRecord:
     scores = build_subject_scores(payload)
+    normalized_class = ensure_form_access(db, current_user, payload.class_name)
+    for item in scores:
+        ensure_subject_access(db, current_user, item["subject"])
+    if payload.student_id and not get_student_for_user(db, current_user, payload.student_id):
+        raise PermissionError("You can only manage results for students in your approved forms")
     record = models.ExamRecord(
         student_id=payload.student_id,
         student_name=normalize_person_name(payload.student_name),
-        class_name=normalize_form(payload.class_name),
+        class_name=normalized_class,
         exam_name=normalize_spaces(payload.exam_name) or "Main Exam",
         term=normalize_term(payload.term),
         subject_scores=json.dumps(scores),
@@ -524,16 +772,23 @@ def create_exam_record(db: Session, payload: schemas.ExamRecordCreate) -> models
     return serialize_exam_record(record)
 
 
-def update_exam_record(db: Session, record_id: int, payload: schemas.ExamRecordUpdate) -> models.ExamRecord | None:
+def update_exam_record(db: Session, record_id: int, payload: schemas.ExamRecordUpdate, current_user: models.User) -> models.ExamRecord | None:
     record = db.query(models.ExamRecord).filter(models.ExamRecord.id == record_id).first()
     if not record:
+        return None
+    if current_user.role == "teacher" and record.class_name not in get_allowed_forms_for_user(db, current_user):
         return None
     original_class = record.class_name
     original_exam = record.exam_name
     scores = build_subject_scores(payload)
+    normalized_class = ensure_form_access(db, current_user, payload.class_name)
+    for item in scores:
+        ensure_subject_access(db, current_user, item["subject"])
+    if payload.student_id and not get_student_for_user(db, current_user, payload.student_id):
+        raise PermissionError("You can only manage results for students in your approved forms")
     record.student_id = payload.student_id
     record.student_name = normalize_person_name(payload.student_name)
-    record.class_name = normalize_form(payload.class_name)
+    record.class_name = normalized_class
     record.exam_name = normalize_spaces(payload.exam_name) or "Main Exam"
     record.term = normalize_term(payload.term)
     record.subject_scores = json.dumps(scores)
@@ -549,9 +804,11 @@ def update_exam_record(db: Session, record_id: int, payload: schemas.ExamRecordU
     return serialize_exam_record(record)
 
 
-def delete_exam_record(db: Session, record_id: int) -> bool:
+def delete_exam_record(db: Session, record_id: int, current_user: models.User) -> bool:
     record = db.query(models.ExamRecord).filter(models.ExamRecord.id == record_id).first()
     if not record:
+        return False
+    if current_user.role == "teacher" and record.class_name not in get_allowed_forms_for_user(db, current_user):
         return False
     class_name = record.class_name
     exam_name = record.exam_name
@@ -561,16 +818,20 @@ def delete_exam_record(db: Session, record_id: int) -> bool:
     return True
 
 
-def get_timetables(db: Session) -> list[dict]:
-    timetables = db.query(models.Timetable).order_by(func.lower(models.Timetable.title).asc()).all()
+def get_timetables(db: Session, current_user: models.User) -> list[dict]:
+    query = db.query(models.Timetable)
+    if current_user.role == "teacher":
+        query = query.filter(models.Timetable.class_name.in_(get_allowed_forms_for_user(db, current_user) or [""]))
+    timetables = query.order_by(func.lower(models.Timetable.title).asc()).all()
     return [serialize_timetable(item) for item in timetables]
 
 
-def create_timetable(db: Session, payload: schemas.TimetableCreate) -> dict:
+def create_timetable(db: Session, payload: schemas.TimetableCreate, current_user: models.User) -> dict:
+    normalized_class = ensure_form_access(db, current_user, payload.class_name)
     timetable = models.Timetable(
         title=normalize_spaces(payload.title),
         timetable_type=payload.timetable_type,
-        class_name=normalize_form(payload.class_name),
+        class_name=normalized_class,
         is_posted=payload.is_posted,
         note=normalize_spaces(payload.note),
         days=json.dumps(payload.days or DAYS_MONDAY_TO_FRIDAY),
@@ -579,13 +840,14 @@ def create_timetable(db: Session, payload: schemas.TimetableCreate) -> dict:
     db.flush()
 
     for entry in payload.entries:
+        normalized_subject = ensure_subject_access(db, current_user, entry.subject)
         db.add(
             models.TimetableEntry(
                 timetable_id=timetable.id,
                 day_of_week=entry.day_of_week,
                 start_time=entry.start_time,
                 end_time=entry.end_time,
-                subject=normalize_subject(entry.subject) or "",
+                subject=normalized_subject,
                 teacher_name=normalize_person_name(entry.teacher_name),
                 room=normalize_spaces(entry.room),
                 note=normalize_spaces(entry.note),
@@ -597,27 +859,30 @@ def create_timetable(db: Session, payload: schemas.TimetableCreate) -> dict:
     return serialize_timetable(timetable)
 
 
-def update_timetable(db: Session, timetable_id: int, payload: schemas.TimetableUpdate) -> dict | None:
+def update_timetable(db: Session, timetable_id: int, payload: schemas.TimetableUpdate, current_user: models.User) -> dict | None:
     timetable = db.query(models.Timetable).filter(models.Timetable.id == timetable_id).first()
     if not timetable:
+        return None
+    if current_user.role == "teacher" and timetable.class_name not in get_allowed_forms_for_user(db, current_user):
         return None
 
     timetable.title = normalize_spaces(payload.title)
     timetable.timetable_type = payload.timetable_type
-    timetable.class_name = normalize_form(payload.class_name)
+    timetable.class_name = ensure_form_access(db, current_user, payload.class_name)
     timetable.is_posted = payload.is_posted
     timetable.note = normalize_spaces(payload.note)
     timetable.days = json.dumps(payload.days or DAYS_MONDAY_TO_FRIDAY)
 
     db.query(models.TimetableEntry).filter(models.TimetableEntry.timetable_id == timetable.id).delete()
     for entry in payload.entries:
+        normalized_subject = ensure_subject_access(db, current_user, entry.subject)
         db.add(
             models.TimetableEntry(
                 timetable_id=timetable.id,
                 day_of_week=entry.day_of_week,
                 start_time=entry.start_time,
                 end_time=entry.end_time,
-                subject=normalize_subject(entry.subject) or "",
+                subject=normalized_subject,
                 teacher_name=normalize_person_name(entry.teacher_name),
                 room=normalize_spaces(entry.room),
                 note=normalize_spaces(entry.note),
@@ -629,18 +894,22 @@ def update_timetable(db: Session, timetable_id: int, payload: schemas.TimetableU
     return serialize_timetable(timetable)
 
 
-def delete_timetable(db: Session, timetable_id: int) -> bool:
+def delete_timetable(db: Session, timetable_id: int, current_user: models.User) -> bool:
     timetable = db.query(models.Timetable).filter(models.Timetable.id == timetable_id).first()
     if not timetable:
+        return False
+    if current_user.role == "teacher" and timetable.class_name not in get_allowed_forms_for_user(db, current_user):
         return False
     db.delete(timetable)
     db.commit()
     return True
 
 
-def post_timetable(db: Session, timetable_id: int) -> dict | None:
+def post_timetable(db: Session, timetable_id: int, current_user: models.User) -> dict | None:
     timetable = db.query(models.Timetable).filter(models.Timetable.id == timetable_id).first()
     if not timetable:
+        return None
+    if current_user.role == "teacher" and timetable.class_name not in get_allowed_forms_for_user(db, current_user):
         return None
     timetable.is_posted = True
     db.commit()
@@ -648,17 +917,26 @@ def post_timetable(db: Session, timetable_id: int) -> dict | None:
     return serialize_timetable(timetable)
 
 
-def get_dashboard_summary(db: Session) -> schemas.DashboardSummary:
-    total_students = db.query(models.Student).count()
+def get_dashboard_summary(db: Session, current_user: models.User) -> schemas.DashboardSummary:
+    allowed_forms = get_allowed_forms_for_user(db, current_user)
+    student_query = db.query(models.Student)
+    attendance_query = db.query(models.Attendance).join(models.Student, models.Attendance.student_id == models.Student.id)
+    fee_query = db.query(models.Fee).outerjoin(models.Student, models.Fee.student_id == models.Student.id)
+    exam_query = db.query(models.ExamRecord)
+    timetable_query = db.query(models.Timetable)
+
+    if current_user.role == "teacher":
+        student_query = student_query.filter(models.Student.class_name.in_(allowed_forms or [""]))
+        attendance_query = attendance_query.filter(models.Student.class_name.in_(allowed_forms or [""]))
+        fee_query = fee_query.filter(models.Student.class_name.in_(allowed_forms or [""]))
+        exam_query = exam_query.filter(models.ExamRecord.class_name.in_(allowed_forms or [""]))
+        timetable_query = timetable_query.filter(models.Timetable.class_name.in_(allowed_forms or [""]))
+
+    total_students = student_query.count()
     total_teachers = db.query(models.Teacher).filter(models.Teacher.approved.is_(True)).count()
-    attendance_records = db.query(models.Attendance).all()
-    fees = db.query(models.Fee).all()
-    top_students = (
-        db.query(models.ExamRecord)
-        .order_by(models.ExamRecord.rank.asc().nullslast(), models.ExamRecord.average.desc())
-        .limit(5)
-        .all()
-    )
+    attendance_records = attendance_query.all()
+    fees = fee_query.all()
+    top_students = exam_query.order_by(models.ExamRecord.rank.asc().nullslast(), models.ExamRecord.average.desc()).limit(5).all()
 
     present_count = len([item for item in attendance_records if item.status == "Present"])
     attendance_rate = round((present_count / len(attendance_records)) * 100, 2) if attendance_records else 0
@@ -669,8 +947,56 @@ def get_dashboard_summary(db: Session) -> schemas.DashboardSummary:
         total_teachers=total_teachers,
         attendance_rate=attendance_rate,
         fees_collected=fees_collected,
-        pending_teacher_accounts=len(list_pending_teachers(db)),
-        posted_timetables=db.query(models.Timetable).filter(models.Timetable.is_posted.is_(True)).count(),
-        exam_records=db.query(models.ExamRecord).count(),
+        pending_teacher_accounts=len(list_pending_teachers(db)) if current_user.role == "admin" else 0,
+        posted_timetables=timetable_query.filter(models.Timetable.is_posted.is_(True)).count(),
+        exam_records=exam_query.count(),
         top_students=[schemas.ExamRecordOut.model_validate(serialize_exam_record(item)) for item in top_students],
     )
+
+
+def list_access_requests(db: Session, current_user: models.User) -> list[dict]:
+    query = db.query(models.TeacherAccessRequest).join(models.Teacher)
+    if current_user.role == "teacher":
+        teacher = get_teacher_by_user_id(db, current_user.id)
+        if not teacher:
+            return []
+        query = query.filter(models.TeacherAccessRequest.teacher_id == teacher.id)
+    items = query.order_by(models.TeacherAccessRequest.id.desc()).all()
+    return [serialize_access_request(item) for item in items]
+
+
+def create_access_request(db: Session, current_user: models.User, payload: schemas.TeacherAccessRequestCreate) -> dict:
+    teacher = get_teacher_by_user_id(db, current_user.id)
+    if not teacher:
+        raise PermissionError("Only teachers can request additional subject access")
+    requested_subject = normalize_subject(payload.requested_subject) or ""
+    requested_forms = sorted(
+        {normalize_form(form_name) for form_name in payload.requested_forms if normalize_form(form_name)},
+        key=lambda item: FORM_OPTIONS.index(item) if item in FORM_OPTIONS else 99,
+    )
+    request_item = models.TeacherAccessRequest(
+        teacher_id=teacher.id,
+        requested_subject=requested_subject,
+        requested_forms=json.dumps(requested_forms),
+        note=normalize_spaces(payload.note),
+        status="pending",
+    )
+    db.add(request_item)
+    db.commit()
+    db.refresh(request_item)
+    return serialize_access_request(request_item)
+
+
+def approve_access_request(
+    db: Session, request_id: int, payload: schemas.TeacherAccessRequestApprove
+) -> dict | None:
+    request_item = db.query(models.TeacherAccessRequest).filter(models.TeacherAccessRequest.id == request_id).first()
+    if not request_item:
+        return None
+    request_item.status = "approved"
+    request_item.admin_note = normalize_spaces(payload.admin_note)
+    for form_name in json.loads(request_item.requested_forms):
+        ensure_access_record(db, request_item.teacher_id, request_item.requested_subject, form_name)
+    db.commit()
+    db.refresh(request_item)
+    return serialize_access_request(request_item)

@@ -4,6 +4,23 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || "http://127.0.0.1:8000",
 });
 
+api.interceptors.request.use((config) => {
+  const storedUser = window.localStorage.getItem("sms_current_user");
+  if (!storedUser) return config;
+
+  try {
+    const user = JSON.parse(storedUser);
+    if (user?.id) {
+      config.headers["x-user-id"] = user.id;
+      config.headers["x-user-role"] = user.role;
+    }
+  } catch {
+    window.localStorage.removeItem("sms_current_user");
+  }
+
+  return config;
+});
+
 const unwrapError = (error, fallback) =>
   error?.response?.data?.detail || error?.message || fallback;
 
@@ -66,12 +83,27 @@ export async function fetchPendingTeachers() {
 }
 
 export async function approveTeacherAccount(id) {
-  const { data } = await api.post(`/users/${id}/approve`);
+  const { data } = await api.post(`/users/${id}/approve`, { forms: [] });
+  return data;
+}
+
+export async function approveTeacherAccountWithForms(id, forms) {
+  const { data } = await api.post(`/users/${id}/approve`, { forms });
   return data;
 }
 
 export async function createAdmin(payload) {
   const { data } = await api.post("/users/admins", payload);
+  return data;
+}
+
+export async function disableTeacherAccount(id) {
+  const { data } = await api.post(`/users/${id}/disable`);
+  return data;
+}
+
+export async function enableTeacherAccount(id) {
+  const { data } = await api.post(`/users/${id}/enable`);
   return data;
 }
 
@@ -137,6 +169,26 @@ export async function deleteExamRecord(id) {
 
 export async function fetchTimetables() {
   const { data } = await api.get("/timetables");
+  return data;
+}
+
+export async function fetchPermissionContext() {
+  const { data } = await api.get("/permissions/me");
+  return data;
+}
+
+export async function fetchAccessRequests() {
+  const { data } = await api.get("/access-requests");
+  return data;
+}
+
+export async function createAccessRequest(payload) {
+  const { data } = await api.post("/access-requests", payload);
+  return data;
+}
+
+export async function approveAccessRequest(id, payload = {}) {
+  const { data } = await api.post(`/access-requests/${id}/approve`, payload);
   return data;
 }
 

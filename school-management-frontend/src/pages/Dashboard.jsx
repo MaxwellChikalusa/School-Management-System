@@ -141,7 +141,7 @@ export default function Dashboard() {
               <strong>{datasets.timetables.length}</strong>
               <div>
                 <h4>Timetables</h4>
-                <p>Subject and exam timetables with posting support</p>
+                {/* <p>Subject and exam timetables with posting support</p> */}
               </div>
             </div>
           </div>

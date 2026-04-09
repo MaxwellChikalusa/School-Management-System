@@ -1,6 +1,28 @@
+import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+
+PHONE_PATTERN = re.compile(r"^(?:099\d{7}|098\d{7}|088\d{7}|\+26599\d{7}|\+26598\d{7}|\+26588\d{7})$")
+EMAIL_PATTERN = re.compile(r"^[a-z]+@gmail\.com$")
+
+
+def validate_phone(value: str | None) -> str | None:
+    if value in (None, ""):
+        return None
+    cleaned = value.strip().replace(" ", "")
+    if not PHONE_PATTERN.fullmatch(cleaned):
+        raise ValueError("Phone number must start with 099, 098, 088, +26599, +26598 or +26588")
+    return cleaned
+
+
+def validate_email(value: str | None) -> str | None:
+    if value in (None, ""):
+        return None
+    cleaned = value.strip()
+    if not EMAIL_PATTERN.fullmatch(cleaned):
+        raise ValueError('Email must be in the format "example@gmail.com" using lowercase letters only')
+    return cleaned
 
 
 class ORMModel(BaseModel):
@@ -24,6 +46,9 @@ class UserSignup(BaseModel):
     qualification: str | None = None
     profile_image: str | None = None
 
+    _validate_phone = field_validator("phone")(validate_phone)
+    _validate_email = field_validator("email")(validate_email)
+
 
 class UserOut(ORMModel):
     id: int
@@ -46,11 +71,11 @@ class StudentBase(BaseModel):
 
 
 class StudentCreate(StudentBase):
-    pass
+    _validate_guardian_contact = field_validator("guardian_contact")(validate_phone)
 
 
 class StudentUpdate(StudentBase):
-    pass
+    _validate_guardian_contact = field_validator("guardian_contact")(validate_phone)
 
 
 class StudentOut(StudentBase, ORMModel):
@@ -67,18 +92,59 @@ class TeacherBase(BaseModel):
     profile_image: str | None = None
     approved: bool = False
     user_id: int | None = None
+    assigned_forms: list[str] = []
 
 
 class TeacherCreate(TeacherBase):
-    pass
+    _validate_phone = field_validator("phone")(validate_phone)
+    _validate_email = field_validator("email")(validate_email)
 
 
 class TeacherUpdate(TeacherBase):
-    pass
+    _validate_phone = field_validator("phone")(validate_phone)
+    _validate_email = field_validator("email")(validate_email)
 
 
 class TeacherOut(TeacherBase, ORMModel):
     id: int
+    approved_subjects: list[str] = []
+    account_status: str = "pending"
+
+
+class ApproveTeacherRequest(BaseModel):
+    forms: list[str]
+
+
+class TeacherAccessRequestBase(BaseModel):
+    requested_subject: str
+    requested_forms: list[str]
+    note: str | None = None
+
+
+class TeacherAccessRequestCreate(TeacherAccessRequestBase):
+    pass
+
+
+class TeacherAccessRequestApprove(BaseModel):
+    admin_note: str | None = None
+
+
+class TeacherAccessRequestOut(ORMModel):
+    id: int
+    teacher_id: int
+    teacher_name: str
+    requested_subject: str
+    requested_forms: list[str]
+    note: str | None = None
+    status: str
+    admin_note: str | None = None
+
+
+class PermissionContext(BaseModel):
+    user_id: int
+    role: str
+    allowed_forms: list[str]
+    allowed_subjects: list[str]
 
 
 class AttendanceBase(BaseModel):

@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
 import ExportMenu from "../components/ExportMenu";
 import { createAttendance, deleteAttendance, fetchAttendance, fetchStudents, updateAttendance } from "../api";
-import { matchesSearch } from "../constants/schoolData";
+import { groupStudentsByForm, matchesSearch } from "../constants/schoolData";
+import { useConfirmDialog } from "../context/ConfirmDialogContext";
 import "../styles/attendance.css";
-import { confirmDelete } from "../utils/confirmDelete";
 
 const initialForm = {
   student_id: "",
@@ -13,6 +13,7 @@ const initialForm = {
 };
 
 export default function Attendance() {
+  const confirm = useConfirmDialog();
   const [students, setStudents] = useState([]);
   const [records, setRecords] = useState([]);
   const [editingId, setEditingId] = useState(null);
@@ -32,6 +33,7 @@ export default function Attendance() {
   const filteredRecords = records.filter((record) =>
     matchesSearch([record.student?.full_name, record.date, record.status, record.note], query)
   );
+  const studentGroups = groupStudentsByForm(students);
 
   return (
     <section className="page-shell">
@@ -63,10 +65,14 @@ export default function Attendance() {
           <div className="form-grid">
             <select value={form.student_id} onChange={(event) => setForm({ ...form, student_id: event.target.value })} required>
               <option value="">Select student</option>
-              {students.map((student) => (
-                <option key={student.id} value={student.id}>
-                  {student.full_name} ({student.class_name})
-                </option>
+              {studentGroups.map((group) => (
+                <optgroup key={group.formName} label={group.formName}>
+                  {group.students.map((student) => (
+                    <option key={student.id} value={student.id}>
+                      {student.full_name}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
             <input type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required />
@@ -122,7 +128,12 @@ export default function Attendance() {
                         Edit
                       </button>
                       <button type="button" className="danger-button" onClick={async () => {
-                        if (!confirmDelete(record.student?.full_name || "this attendance record")) return;
+                        const approved = await confirm({
+                          title: "Delete attendance record?",
+                          message: `Remove the attendance entry for ${record.student?.full_name || "this student"}?`,
+                          confirmLabel: "Delete Record",
+                        });
+                        if (!approved) return;
                         await deleteAttendance(record.id);
                         loadData();
                       }}>

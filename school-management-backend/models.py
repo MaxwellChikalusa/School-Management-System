@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from database import Base
@@ -45,6 +45,44 @@ class Teacher(Base):
     approved = Column(Boolean, default=False, nullable=False)
 
     user = relationship("User")
+    subject_accesses = relationship(
+        "TeacherSubjectAccess",
+        back_populates="teacher",
+        cascade="all, delete-orphan",
+    )
+    access_requests = relationship(
+        "TeacherAccessRequest",
+        back_populates="teacher",
+        cascade="all, delete-orphan",
+    )
+
+
+class TeacherSubjectAccess(Base):
+    __tablename__ = "teacher_subject_accesses"
+    __table_args__ = (
+        UniqueConstraint("teacher_id", "subject", "form_name", name="uq_teacher_subject_form_access"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=False)
+    subject = Column(String, nullable=False)
+    form_name = Column(String, nullable=False)
+
+    teacher = relationship("Teacher", back_populates="subject_accesses")
+
+
+class TeacherAccessRequest(Base):
+    __tablename__ = "teacher_access_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=False)
+    requested_subject = Column(String, nullable=False)
+    requested_forms = Column(Text, nullable=False)
+    note = Column(Text, nullable=True)
+    status = Column(String, nullable=False, default="pending")
+    admin_note = Column(Text, nullable=True)
+
+    teacher = relationship("Teacher", back_populates="access_requests")
 
 
 class Attendance(Base):
