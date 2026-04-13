@@ -136,8 +136,8 @@ export default function Timetable() {
       <div className="page-header">
         <div>
           <p className="eyebrow">Timetable</p>
-          <h2>MSCE style timetable manager</h2>
-          <p className="page-note">Creates a printable exam sheet layout while keeping every timetable entry inside PostgreSQL tables.</p>
+          <h2>Secondary timetable manager</h2>
+          <p className="page-note">Creates a printable exam sheet layout while keeping every timetable entry inside tables.</p>
         </div>
         <ExportMenu title="Timetable" filename="timetable" rows={timetableRows} />
       </div>
@@ -146,13 +146,13 @@ export default function Timetable() {
         <form className="panel form-panel" onSubmit={saveTimetable}>
           <h3>{editingId ? "Update Timetable" : "Create Timetable"}</h3>
           <div className="form-grid">
-            <input placeholder="Title" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} required />
+            <input placeholder="Title *" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} required />
             <select value={form.timetable_type} onChange={(event) => setForm({ ...form, timetable_type: event.target.value })}>
               <option value="exam">Exams Timetable</option>
               <option value="subject">Subjects Timetable</option>
             </select>
             <select value={form.class_name} onChange={(event) => setForm({ ...form, class_name: event.target.value })} required>
-              <option value="">Select form</option>
+              <option value="">Select form *</option>
               {formOptions.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
             <input placeholder="Note" value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} />
@@ -198,7 +198,7 @@ export default function Timetable() {
                     nextEntries[index] = { ...entry, subject: event.target.value };
                     setForm({ ...form, entries: nextEntries });
                   }}>
-                    <option value="">Select subject</option>
+                    <option value="">Select subject *</option>
                     {subjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
                   </select>
                   <select value={entry.teacher_name} onChange={(event) => {
@@ -275,12 +275,13 @@ export default function Timetable() {
                     </button>
                     <button type="button" className="danger-button" onClick={async () => {
                       const approved = await confirm({
-                        title: "Delete timetable?",
-                        message: `Remove ${timetable.title || "this timetable"} from the system?`,
+                        title: `Are You Sure You Want to Delete "${timetable.title || "Timetable"}"`,
+                        message: "This action cannot be undone.",
                         confirmLabel: "Delete Timetable",
                       });
                       if (!approved) return;
                       await deleteTimetable(timetable.id);
+                      showSuccess({ title: "Deleted successfully", message: "Timetable was deleted successfully." });
                       loadData();
                     }}>
                       Delete
@@ -290,7 +291,7 @@ export default function Timetable() {
                 <div className="msce-sheet">
                   <div className="msce-sheet-header">
                     <p className="msce-sheet-kicker">Republic of Malawi</p>
-                    <h4>Malawi School Certificate of Education</h4>
+                    <h4>Secondary School Level Timetable</h4>
                     <p className="msce-sheet-meta">{timetable.title} | {timetable.class_name} | {timetable.is_posted ? "Posted" : "Draft"}</p>
                     <p className="msce-sheet-note">{timetable.note || "Official examination timetable prepared by the school management system."}</p>
                   </div>
@@ -333,7 +334,7 @@ export default function Timetable() {
 
                   <div className="msce-sheet-footer">
                     <span>Candidate instructions: arrive 30 minutes before the paper starts.</span>
-                    <span>Generated from the school database.</span>
+                    <span>Generated from the system.</span>
                   </div>
                 </div>
               </div>

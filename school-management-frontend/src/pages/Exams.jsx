@@ -3,7 +3,7 @@ import ExportMenu from "../components/ExportMenu";
 import { createExamRecord, deleteExamRecord, fetchExamRecords, fetchPermissionContext, fetchStudents, updateExamRecord } from "../api";
 import { FORM_OPTIONS, SECONDARY_SUBJECTS, TERM_OPTIONS, groupStudentsByForm, matchesSearch } from "../constants/schoolData";
 import { useAuth } from "../context/AuthContext";
-import { useConfirmDialog, useSuccessDialog } from "../context/ConfirmDialogContext";
+import { useConfirmDialog, useNoticeDialog, useSuccessDialog } from "../context/ConfirmDialogContext";
 import { formatNumber } from "../utils/formatters";
 import "../styles/exams.css";
 
@@ -27,6 +27,7 @@ const createInitialForm = () => ({
 export default function Exams() {
   const { currentUser } = useAuth();
   const confirm = useConfirmDialog();
+  const showNotice = useNoticeDialog();
   const showSuccess = useSuccessDialog();
   const [students, setStudents] = useState([]);
   const [records, setRecords] = useState([]);
@@ -54,7 +55,7 @@ export default function Exams() {
   }, []);
 
   const filteredRecords = records.filter((record) =>
-    matchesSearch([record.student_name, record.class_name, record.exam_name, record.term], query)
+    matchesSearch([record.student_name, record.admission_number, record.class_name, record.exam_name, record.term], query)
   );
   const groupedRecords = FORM_OPTIONS.map((formName) => ({
     formName,
@@ -98,12 +99,18 @@ export default function Exams() {
                 .map((item) => ({ subject: item.subject, score: Number(item.score) })),
             };
 
-            if (editingId) {
-              await updateExamRecord(editingId, payload);
-              showSuccess({ title: "Updated successfully", message: "Exam result was updated successfully." });
-            } else {
-              await createExamRecord(payload);
-              showSuccess({ title: "Saved successfully", message: "Exam result was saved successfully." });
+            try {
+              if (editingId) {
+                await updateExamRecord(editingId, payload);
+                showSuccess({ title: "Updated successfully", message: "Exam result was updated successfully." });
+              } else {
+                await createExamRecord(payload);
+                showSuccess({ title: "Saved successfully", message: "Exam result was saved successfully." });
+              }
+            } catch (error) {
+              const message = error?.response?.data?.detail || error?.message || "Unable to save exam results.";
+              showNotice({ title: message === "Details Already Entered" ? "Details Already Entered" : "Unable to Save", message });
+              return;
             }
 
             setForm(createInitialForm());
@@ -120,13 +127,14 @@ export default function Exams() {
                 setForm({
                   ...form,
                   student_id: event.target.value,
+                  admission_number: student?.admission_number || "",
                   student_name: student?.full_name || "",
                   class_name: student?.class_name || "",
                   post_office_address: student?.address || "",
                 });
               }}
             >
-              <option value="">Select student</option>
+              <option value="">Select student *</option>
               {studentGroups.map((group) => (
                 <optgroup key={group.formName} label={group.formName}>
                   {group.students.map((student) => (
@@ -137,13 +145,13 @@ export default function Exams() {
                 </optgroup>
               ))}
             </select>
-            <input placeholder="Student name" value={form.student_name} onChange={(event) => setForm({ ...form, student_name: event.target.value })} required />
+            <input placeholder="Student name *" value={form.student_name} onChange={(event) => setForm({ ...form, student_name: event.target.value })} required />
             <select value={form.class_name} onChange={(event) => setForm({ ...form, class_name: event.target.value })} required>
-              <option value="">Select form</option>
+              <option value="">Select form *</option>
               {formOptions.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
             <input placeholder="Post Office Address" value={form.post_office_address} onChange={(event) => setForm({ ...form, post_office_address: event.target.value })} />
-            <input placeholder="Exam name" value={form.exam_name} onChange={(event) => setForm({ ...form, exam_name: event.target.value })} required />
+            <input placeholder="Exam name *" value={form.exam_name} onChange={(event) => setForm({ ...form, exam_name: event.target.value })} required />
             <select value={form.term} onChange={(event) => setForm({ ...form, term: event.target.value })}>
               <option value="">Select term</option>
               {TERM_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
@@ -160,7 +168,7 @@ export default function Exams() {
                     setForm({ ...form, subject_scores: next });
                   }}
                 >
-                  <option value="">Select subject</option>
+                  <option value="">Select subject *</option>
                   {subjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
                 </select>
                 <input
@@ -201,6 +209,7 @@ export default function Exams() {
                 <tr>
                   <th>Rank</th>
                   <th>Student</th>
+                  <th>Admission No.</th>
                   <th>Class</th>
                   <th>P.O. Address</th>
                   <th>Term</th>
@@ -214,12 +223,13 @@ export default function Exams() {
               <tbody>
                 {groupedRecords.flatMap((group) => [
                   <tr key={`${group.formName}-header`} className="group-row group-row-green">
-                    <td colSpan="10"><strong>{group.formName}</strong></td>
+                    <td colSpan="11"><strong>{group.formName}</strong></td>
                   </tr>,
                   ...group.records.map((record) => (
                     <tr key={record.id}>
                       <td>{record.rank != null ? formatNumber(record.rank) : "-"}</td>
                       <td>{record.student_name}</td>
+                      <td>{record.admission_number || "-"}</td>
                       <td>{record.class_name}</td>
                       <td>{record.post_office_address || "-"}</td>
                       <td>{record.term || "-"}</td>
@@ -232,6 +242,7 @@ export default function Exams() {
                           setEditingId(record.id);
                           setForm({
                             student_id: record.student_id ? String(record.student_id) : "",
+                            admission_number: record.admission_number || "",
                             student_name: record.student_name || "",
                             class_name: record.class_name || "",
                             post_office_address: record.post_office_address || "",
@@ -246,12 +257,13 @@ export default function Exams() {
                         </button>
                         <button type="button" className="danger-button" onClick={async () => {
                           const approved = await confirm({
-                            title: "Delete exam record?",
-                            message: `Remove the saved results for ${record.student_name || "this student"}?`,
+                            title: `Are You Sure You Want to Delete "${record.student_name || "Exam Record"}"`,
+                            message: "This action cannot be undone.",
                             confirmLabel: "Delete Result",
                           });
                           if (!approved) return;
                           await deleteExamRecord(record.id);
+                          showSuccess({ title: "Deleted successfully", message: "Exam record was deleted successfully." });
                           loadData();
                         }}>
                           Delete
@@ -260,7 +272,7 @@ export default function Exams() {
                     </tr>
                   )),
                 ])}
-                {!filteredRecords.length ? <tr><td colSpan="10">No exam records found.</td></tr> : null}
+                {!filteredRecords.length ? <tr><td colSpan="11">No exam records found.</td></tr> : null}
               </tbody>
             </table>
           </div>

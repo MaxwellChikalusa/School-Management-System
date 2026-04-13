@@ -104,10 +104,14 @@ class Fee(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     student_id = Column(Integer, ForeignKey("students.id"), nullable=True)
+    admission_number = Column(String, nullable=True)
     student_name = Column(String, nullable=False)
+    transaction_date = Column(String, nullable=True)
     expected_amount = Column(Float, nullable=False, default=0)
     amount_paid = Column(Float, nullable=False, default=0)
     fully_paid = Column(Boolean, nullable=False, default=False)
+    reference_numbers = Column(Text, nullable=True)
+    receipt_files = Column(Text, nullable=True)
     note = Column(String, nullable=True)
 
     student = relationship("Student")

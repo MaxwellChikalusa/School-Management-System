@@ -186,6 +186,8 @@ def create_student(
 ):
     try:
         return crud.create_student(db, payload, current_user)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except PermissionError as exc:
         handle_permission_error(exc)
 
@@ -199,6 +201,8 @@ def update_student(
 ):
     try:
         student = crud.update_student(db, student_id, payload, current_user)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except PermissionError as exc:
         handle_permission_error(exc)
     if not student:
@@ -259,6 +263,8 @@ def create_attendance(
 ):
     try:
         return crud.create_attendance(db, payload, current_user)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except PermissionError as exc:
         handle_permission_error(exc)
 
@@ -272,6 +278,8 @@ def update_attendance(
 ):
     try:
         attendance = crud.update_attendance(db, attendance_id, payload, current_user)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except PermissionError as exc:
         handle_permission_error(exc)
     if not attendance:
@@ -303,6 +311,8 @@ def create_fee(
 ):
     try:
         return crud.create_fee(db, payload, current_user)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except PermissionError as exc:
         handle_permission_error(exc)
 
@@ -316,6 +326,8 @@ def update_fee(
 ):
     try:
         fee = crud.update_fee(db, fee_id, payload, current_user)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except PermissionError as exc:
         handle_permission_error(exc)
     if not fee:
@@ -347,6 +359,8 @@ def create_exam_record(
 ):
     try:
         return crud.create_exam_record(db, payload, current_user)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except PermissionError as exc:
         handle_permission_error(exc)
 
@@ -360,6 +374,8 @@ def update_exam_record(
 ):
     try:
         record = crud.update_exam_record(db, record_id, payload, current_user)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except PermissionError as exc:
         handle_permission_error(exc)
     if not record:

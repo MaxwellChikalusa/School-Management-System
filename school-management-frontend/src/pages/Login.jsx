@@ -94,21 +94,21 @@ export default function Login() {
               <p className="auth-form-note">You must set a new password before continuing.</p>
               <input
                 type="password"
-                placeholder="Current password"
+                placeholder="Current password *"
                 value={passwordForm.current_password}
                 onChange={(event) => setPasswordForm({ ...passwordForm, current_password: event.target.value })}
                 required
               />
               <input
                 type="password"
-                placeholder="New password"
+                placeholder="New password *"
                 value={passwordForm.new_password}
                 onChange={(event) => setPasswordForm({ ...passwordForm, new_password: event.target.value })}
                 required
               />
               <input
                 type="password"
-                placeholder="Confirm new password"
+                placeholder="Confirm new password *"
                 value={passwordForm.confirm_password}
                 onChange={(event) => setPasswordForm({ ...passwordForm, confirm_password: event.target.value })}
                 required
@@ -130,13 +130,13 @@ export default function Login() {
               <p className="auth-form-note">Use your approved school account to continue.</p>
               <input
                 type="text"
-                placeholder="Username"
+                placeholder="Username *"
                 value={form.username}
                 onChange={(event) => setForm({ ...form, username: event.target.value })}
               />
               <input
                 type="password"
-                placeholder="Password"
+                placeholder="Password *"
                 value={form.password}
                 onChange={(event) => setForm({ ...form, password: event.target.value })}
               />

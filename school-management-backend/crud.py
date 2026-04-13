@@ -1,7 +1,8 @@
+import datetime
 import json
 
 import bcrypt
-from sqlalchemy import func, inspect, text
+from sqlalchemy import func, inspect, or_, text
 from sqlalchemy.orm import Session
 
 import models
@@ -75,6 +76,19 @@ def ensure_schema(db: Session) -> None:
     student_columns = {column["name"] for column in inspector.get_columns("students")}
     if "email_address" not in student_columns:
         db.execute(text("ALTER TABLE students ADD COLUMN email_address TEXT"))
+        db.commit()
+    fee_columns = {column["name"] for column in inspector.get_columns("fees")}
+    if "admission_number" not in fee_columns:
+        db.execute(text("ALTER TABLE fees ADD COLUMN admission_number TEXT"))
+        db.commit()
+    if "reference_numbers" not in fee_columns:
+        db.execute(text("ALTER TABLE fees ADD COLUMN reference_numbers TEXT"))
+        db.commit()
+    if "receipt_files" not in fee_columns:
+        db.execute(text("ALTER TABLE fees ADD COLUMN receipt_files TEXT"))
+        db.commit()
+    if "transaction_date" not in fee_columns:
+        db.execute(text("ALTER TABLE fees ADD COLUMN transaction_date TEXT"))
         db.commit()
 
 
@@ -164,6 +178,18 @@ def normalize_teacher_payload(payload: schemas.TeacherBase) -> dict:
     return data
 
 
+def json_list_or_empty(value: str | None) -> list[str]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item) for item in parsed if item]
+
+
 def build_subject_scores(payload: schemas.ExamRecordBase) -> list[dict]:
     scores = []
     for item in payload.subject_scores:
@@ -203,6 +229,7 @@ def serialize_exam_record(record: models.ExamRecord) -> dict:
     return {
         "id": record.id,
         "student_id": record.student_id,
+        "admission_number": record.student.admission_number if record.student else None,
         "student_name": record.student_name,
         "class_name": record.class_name,
         "post_office_address": record.post_office_address,
@@ -531,9 +558,79 @@ def get_students(db: Session, current_user: models.User) -> list[models.Student]
     return query.order_by(models.Student.class_name.asc(), func.lower(models.Student.full_name).asc()).all()
 
 
+def generate_admission_number(db: Session) -> str:
+    current_year = datetime.datetime.now().year
+    prefix = f"COM-{current_year}-"
+    max_admission = db.query(func.max(models.Student.admission_number)).filter(
+        models.Student.admission_number.like(f"{prefix}%")
+    ).scalar()
+    if max_admission:
+        try:
+            last_sequence = int(max_admission.rsplit("-", 1)[1])
+        except (ValueError, IndexError):
+            last_sequence = 0
+        next_sequence = last_sequence + 1
+    else:
+        next_sequence = 1
+    return f"{prefix}{next_sequence:03d}"
+
+
+def find_duplicate_student(
+    db: Session, student_data: dict, exclude_student_id: int | None = None
+) -> models.Student | None:
+    query = db.query(models.Student).filter(
+        func.lower(models.Student.full_name) == (student_data.get("full_name") or "").casefold(),
+        models.Student.class_name == student_data.get("class_name"),
+        models.Student.sex == student_data.get("sex"),
+    )
+    if exclude_student_id is not None:
+        query = query.filter(models.Student.id != exclude_student_id)
+
+    matches = query.order_by(models.Student.id.asc()).all()
+    for student in matches:
+        same_guardian = not student_data.get("guardian_name") or student.guardian_name == student_data.get("guardian_name")
+        same_contact = not student_data.get("guardian_contact") or student.guardian_contact == student_data.get("guardian_contact")
+        same_email = not student_data.get("email_address") or student.email_address == student_data.get("email_address")
+        if same_guardian and same_contact and same_email:
+            return student
+    return None
+
+
+def find_duplicate_exam_record(
+    db: Session, payload: schemas.ExamRecordBase, exclude_record_id: int | None = None
+) -> models.ExamRecord | None:
+    normalized_class = normalize_form(payload.class_name)
+    normalized_exam_name = normalize_spaces(payload.exam_name) or "Main Exam"
+    normalized_term = normalize_term(payload.term)
+    normalized_student_name = normalize_person_name(payload.student_name)
+
+    query = db.query(models.ExamRecord).filter(
+        models.ExamRecord.class_name == normalized_class,
+        models.ExamRecord.exam_name == normalized_exam_name,
+    )
+    if normalized_term is None:
+        query = query.filter(models.ExamRecord.term.is_(None))
+    else:
+        query = query.filter(models.ExamRecord.term == normalized_term)
+    if exclude_record_id is not None:
+        query = query.filter(models.ExamRecord.id != exclude_record_id)
+
+    if payload.student_id:
+        query = query.filter(models.ExamRecord.student_id == payload.student_id)
+    else:
+        query = query.filter(func.lower(models.ExamRecord.student_name) == (normalized_student_name or "").casefold())
+
+    return query.first()
+
+
 def create_student(db: Session, payload: schemas.StudentCreate, current_user: models.User) -> models.Student:
     data = normalize_student_payload(payload)
     data["class_name"] = ensure_form_access(db, current_user, data["class_name"])
+    duplicate = find_duplicate_student(db, data)
+    if duplicate:
+        raise ValueError("Details Already Entered")
+    data["admission_number"] = generate_admission_number(db)
+
     student = models.Student(**data)
     db.add(student)
     db.commit()
@@ -547,6 +644,10 @@ def update_student(db: Session, student_id: int, payload: schemas.StudentUpdate,
         return None
     data = normalize_student_payload(payload)
     data["class_name"] = ensure_form_access(db, current_user, data["class_name"])
+    duplicate = find_duplicate_student(db, data, exclude_student_id=student.id)
+    if duplicate:
+        raise ValueError("Details Already Entered")
+    data["admission_number"] = student.admission_number
     for field, value in data.items():
         setattr(student, field, value)
     db.commit()
@@ -610,9 +711,23 @@ def get_attendance(db: Session, current_user: models.User) -> list[models.Attend
     return query.order_by(models.Attendance.date.desc(), models.Attendance.id.desc()).all()
 
 
+def find_duplicate_attendance(
+    db: Session, student_id: int, date: str, exclude_attendance_id: int | None = None
+) -> models.Attendance | None:
+    query = db.query(models.Attendance).filter(
+        models.Attendance.student_id == student_id,
+        models.Attendance.date == date,
+    )
+    if exclude_attendance_id is not None:
+        query = query.filter(models.Attendance.id != exclude_attendance_id)
+    return query.first()
+
+
 def create_attendance(db: Session, payload: schemas.AttendanceCreate, current_user: models.User) -> models.Attendance:
     if not get_student_for_user(db, current_user, payload.student_id):
         raise PermissionError("You can only mark attendance for students in your approved forms")
+    if find_duplicate_attendance(db, payload.student_id, payload.date):
+        raise ValueError("Already entered")
     attendance = models.Attendance(**payload.model_dump())
     db.add(attendance)
     db.commit()
@@ -626,6 +741,8 @@ def update_attendance(db: Session, attendance_id: int, payload: schemas.Attendan
         return None
     if not get_student_for_user(db, current_user, payload.student_id):
         raise PermissionError("You can only update attendance for students in your approved forms")
+    if find_duplicate_attendance(db, payload.student_id, payload.date, exclude_attendance_id=attendance.id):
+        raise ValueError("Already entered")
     for field, value in payload.model_dump().items():
         setattr(attendance, field, value)
     db.commit()
@@ -651,24 +768,102 @@ def get_fees(db: Session, current_user: models.User) -> list[dict]:
 
 
 def serialize_fee(fee: models.Fee) -> dict:
+    reference_numbers = json_list_or_empty(fee.reference_numbers)
+    receipt_files = json_list_or_empty(fee.receipt_files)
     return {
         "id": fee.id,
         "student_id": fee.student_id,
+        "admission_number": fee.admission_number or (fee.student.admission_number if fee.student else None),
         "student_name": fee.student_name,
+        "transaction_date": fee.transaction_date,
         "expected_amount": fee.expected_amount,
         "amount_paid": fee.amount_paid,
         "fully_paid": fee.fully_paid,
+        "reference_number": ", ".join(reference_numbers),
+        "receipt_files": receipt_files,
         "note": fee.note,
         "balance": max(fee.expected_amount - fee.amount_paid, 0),
     }
 
 
+def get_fee_by_admission_number(
+    db: Session, admission_number: str | None, current_user: models.User, exclude_fee_id: int | None = None
+) -> models.Fee | None:
+    normalized_admission_number = normalize_spaces(admission_number)
+    if not normalized_admission_number:
+        return None
+    query = db.query(models.Fee).filter(
+        or_(
+            models.Fee.admission_number == normalized_admission_number,
+            models.Fee.student.has(models.Student.admission_number == normalized_admission_number),
+        )
+    )
+    if exclude_fee_id is not None:
+        query = query.filter(models.Fee.id != exclude_fee_id)
+    fee = query.first()
+    if not fee:
+        return None
+    if fee.student_id and not get_student_for_user(db, current_user, fee.student_id):
+        return None
+    return fee
+
+
+def merge_fee_details(fee: models.Fee, data: dict) -> None:
+    existing_reference_numbers = json_list_or_empty(fee.reference_numbers)
+    new_reference_number = normalize_spaces(data.get("reference_number"))
+    if new_reference_number:
+        existing_reference_numbers.append(new_reference_number)
+
+    existing_receipts = json_list_or_empty(fee.receipt_files)
+    incoming_receipts = [item for item in data.get("receipt_files", []) if item]
+    combined_note = " | ".join(
+        item for item in [normalize_spaces(fee.note), normalize_spaces(data.get("note"))] if item
+    )
+    combined_transaction_date = " | ".join(
+        item for item in [normalize_spaces(fee.transaction_date), normalize_spaces(data.get("transaction_date"))] if item
+    )
+
+    if not float(fee.expected_amount or 0):
+        fee.expected_amount = float(data.get("expected_amount") or 0)
+    fee.amount_paid = float(fee.amount_paid or 0) + float(data.get("amount_paid") or 0)
+    fee.fully_paid = fee.amount_paid >= fee.expected_amount if fee.expected_amount else bool(data.get("fully_paid"))
+    fee.reference_numbers = json.dumps(existing_reference_numbers)
+    fee.receipt_files = json.dumps([*existing_receipts, *incoming_receipts])
+    fee.note = combined_note or None
+    fee.transaction_date = combined_transaction_date or None
+    if data.get("student_name"):
+        fee.student_name = data["student_name"]
+    if data.get("student_id"):
+        fee.student_id = data["student_id"]
+    if data.get("admission_number"):
+        fee.admission_number = data["admission_number"]
+
+
 def create_fee(db: Session, payload: schemas.FeeCreate, current_user: models.User) -> dict:
     data = payload.model_dump()
-    if data["student_id"] and not get_student_for_user(db, current_user, data["student_id"]):
+    student = get_student_for_user(db, current_user, data["student_id"]) if data["student_id"] else None
+    if data["student_id"] and not student:
         raise PermissionError("You can only manage fees for students in your approved forms")
     data["student_name"] = normalize_person_name(data["student_name"])
+    data["admission_number"] = (
+        normalize_spaces(student.admission_number) if student else normalize_spaces(data.get("admission_number"))
+    )
+    data["transaction_date"] = normalize_spaces(data.get("transaction_date"))
+    data["reference_number"] = normalize_spaces(data.get("reference_number"))
+    data["receipt_files"] = [item for item in data.get("receipt_files", []) if item]
     data["note"] = normalize_spaces(data.get("note"))
+    existing_fee = get_fee_by_admission_number(db, data.get("admission_number"), current_user)
+    if existing_fee:
+        if not payload.merge_with_existing:
+            raise ValueError("Do you want to add this to existing fees?")
+        merge_fee_details(existing_fee, data)
+        db.commit()
+        db.refresh(existing_fee)
+        return serialize_fee(existing_fee)
+    data["reference_numbers"] = json.dumps([data["reference_number"]]) if data.get("reference_number") else json.dumps([])
+    data["receipt_files"] = json.dumps(data.get("receipt_files", []))
+    data.pop("reference_number", None)
+    data.pop("merge_with_existing", None)
     fee = models.Fee(**data)
     db.add(fee)
     db.commit()
@@ -683,10 +878,22 @@ def update_fee(db: Session, fee_id: int, payload: schemas.FeeUpdate, current_use
     if fee.student_id and not get_student_for_user(db, current_user, fee.student_id):
         return None
     data = payload.model_dump()
-    if data["student_id"] and not get_student_for_user(db, current_user, data["student_id"]):
+    student = get_student_for_user(db, current_user, data["student_id"]) if data["student_id"] else None
+    if data["student_id"] and not student:
         raise PermissionError("You can only manage fees for students in your approved forms")
     data["student_name"] = normalize_person_name(data["student_name"])
+    data["admission_number"] = (
+        normalize_spaces(student.admission_number) if student else normalize_spaces(data.get("admission_number"))
+    )
+    data["transaction_date"] = normalize_spaces(data.get("transaction_date"))
+    duplicate_fee = get_fee_by_admission_number(db, data.get("admission_number"), current_user, exclude_fee_id=fee.id)
+    if duplicate_fee:
+        raise ValueError("Do you want to add this to existing fees?")
+    data["reference_number"] = normalize_spaces(data.get("reference_number"))
+    data["reference_numbers"] = json.dumps([data["reference_number"]]) if data.get("reference_number") else json.dumps([])
+    data["receipt_files"] = json.dumps([item for item in data.get("receipt_files", []) if item])
     data["note"] = normalize_spaces(data.get("note"))
+    data.pop("reference_number", None)
     for field, value in data.items():
         setattr(fee, field, value)
     db.commit()
@@ -774,6 +981,9 @@ def get_exam_records(db: Session, current_user: models.User) -> list[models.Exam
 def create_exam_record(db: Session, payload: schemas.ExamRecordCreate, current_user: models.User) -> models.ExamRecord:
     scores = build_subject_scores(payload)
     normalized_class = ensure_form_access(db, current_user, payload.class_name)
+    duplicate = find_duplicate_exam_record(db, payload)
+    if duplicate:
+        raise ValueError("Details Already Entered")
     for item in scores:
         ensure_subject_access(db, current_user, item["subject"])
     if payload.student_id and not get_student_for_user(db, current_user, payload.student_id):
@@ -809,6 +1019,9 @@ def update_exam_record(db: Session, record_id: int, payload: schemas.ExamRecordU
     original_exam = record.exam_name
     scores = build_subject_scores(payload)
     normalized_class = ensure_form_access(db, current_user, payload.class_name)
+    duplicate = find_duplicate_exam_record(db, payload, exclude_record_id=record.id)
+    if duplicate:
+        raise ValueError("Details Already Entered")
     for item in scores:
         ensure_subject_access(db, current_user, item["subject"])
     if payload.student_id and not get_student_for_user(db, current_user, payload.student_id):

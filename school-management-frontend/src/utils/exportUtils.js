@@ -10,14 +10,33 @@ function downloadBlob(filename, content, type) {
   URL.revokeObjectURL(url);
 }
 
+function sanitizeExportValue(header, value) {
+  if (header === "profile_image") {
+    return value ? "True" : "false";
+  }
+  if (header === "receipt_files") {
+    return Array.isArray(value) ? `${value.length} uploaded` : "0 uploaded";
+  }
+  return value ?? "";
+}
+
+function sanitizeRows(rows) {
+  return rows.map((row) =>
+    Object.fromEntries(
+      Object.entries(row).map(([header, value]) => [header, sanitizeExportValue(header, value)])
+    )
+  );
+}
+
 export function exportAsExcel(filename, rows) {
   if (!rows.length) return;
-  const headers = Object.keys(rows[0]);
+  const sanitizedRows = sanitizeRows(rows);
+  const headers = Object.keys(sanitizedRows[0]);
   const csv = [
     headers.join(","),
-    ...rows.map((row) =>
+    ...sanitizedRows.map((row) =>
       headers
-        .map((header) => `"${String(row[header] ?? "").replaceAll('"', '""')}"`)
+        .map((header) => `"${String(row[header]).replaceAll('"', '""')}"`)
         .join(",")
     ),
   ].join("\n");
@@ -25,11 +44,12 @@ export function exportAsExcel(filename, rows) {
 }
 
 export function exportAsWord(filename, title, rows) {
-  const headers = rows.length ? Object.keys(rows[0]) : [];
-  const tableRows = rows
+  const sanitizedRows = sanitizeRows(rows);
+  const headers = sanitizedRows.length ? Object.keys(sanitizedRows[0]) : [];
+  const tableRows = sanitizedRows
     .map(
       (row) =>
-        `<tr>${headers.map((header) => `<td>${row[header] ?? ""}</td>`).join("")}</tr>`
+        `<tr>${headers.map((header) => `<td>${row[header]}</td>`).join("")}</tr>`
     )
     .join("");
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title></head><body><h1>${title}</h1><table border="1" cellspacing="0" cellpadding="6"><thead><tr>${headers
@@ -39,13 +59,14 @@ export function exportAsWord(filename, title, rows) {
 }
 
 export function exportAsPdf(title, rows) {
-  const headers = rows.length ? Object.keys(rows[0]) : [];
+  const sanitizedRows = sanitizeRows(rows);
+  const headers = sanitizedRows.length ? Object.keys(sanitizedRows[0]) : [];
   const html = `<!DOCTYPE html><html><head><title>${title}</title><style>body{font-family:Arial,sans-serif;padding:24px;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #444;padding:8px;text-align:left;}h1{margin-bottom:16px;}</style></head><body><h1>${title}</h1><p>Use your browser Save as PDF option to complete the export.</p><table><thead><tr>${headers
     .map((header) => `<th>${header}</th>`)
-    .join("")}</tr></thead><tbody>${rows
+    .join("")}</tr></thead><tbody>${sanitizedRows
     .map(
       (row) =>
-        `<tr>${headers.map((header) => `<td>${row[header] ?? ""}</td>`).join("")}</tr>`
+        `<tr>${headers.map((header) => `<td>${row[header]}</td>`).join("")}</tr>`
     )
     .join("")}</tbody></table><script>window.onload=()=>{window.print();}</script></body></html>`;
   const win = window.open("", "_blank", "width=1100,height=800");
@@ -56,13 +77,14 @@ export function exportAsPdf(title, rows) {
 }
 
 export function printRows(title, rows) {
-  const headers = rows.length ? Object.keys(rows[0]) : [];
+  const sanitizedRows = sanitizeRows(rows);
+  const headers = sanitizedRows.length ? Object.keys(sanitizedRows[0]) : [];
   const html = `<!DOCTYPE html><html><head><title>${title}</title><style>body{font-family:Arial,sans-serif;padding:24px;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #444;padding:8px;text-align:left;}h1{margin-bottom:16px;}</style></head><body><h1>${title}</h1><table><thead><tr>${headers
     .map((header) => `<th>${header}</th>`)
-    .join("")}</tr></thead><tbody>${rows
+    .join("")}</tr></thead><tbody>${sanitizedRows
     .map(
       (row) =>
-        `<tr>${headers.map((header) => `<td>${row[header] ?? ""}</td>`).join("")}</tr>`
+        `<tr>${headers.map((header) => `<td>${row[header]}</td>`).join("")}</tr>`
     )
     .join("")}</tbody></table></body></html>`;
   const win = window.open("", "_blank", "width=1100,height=800");

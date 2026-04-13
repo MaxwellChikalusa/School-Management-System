@@ -3,7 +3,7 @@ import ExportMenu from "../components/ExportMenu";
 import { createStudent, deleteStudent, fetchPermissionContext, fetchStudents, updateStudent } from "../api";
 import { FORM_OPTIONS, SEX_OPTIONS, groupStudentsByForm, matchesSearch } from "../constants/schoolData";
 import { useAuth } from "../context/AuthContext";
-import { useConfirmDialog, useSuccessDialog } from "../context/ConfirmDialogContext";
+import { useConfirmDialog, useNoticeDialog, useSuccessDialog } from "../context/ConfirmDialogContext";
 import { formatNumber } from "../utils/formatters";
 import "../styles/students.css";
 
@@ -27,6 +27,7 @@ function normalizeMalawiPhoneInput(value) {
 export default function Students() {
   const { currentUser } = useAuth();
   const confirm = useConfirmDialog();
+  const showNotice = useNoticeDialog();
   const showSuccess = useSuccessDialog();
   const [students, setStudents] = useState([]);
   const [permission, setPermission] = useState({ allowed_forms: [], allowed_subjects: [] });
@@ -71,12 +72,18 @@ export default function Students() {
       age: form.age ? Number(form.age) : null,
     };
 
-    if (editingId) {
-      await updateStudent(editingId, payload);
-      showSuccess({ title: "Updated successfully", message: "Student details were updated successfully." });
-    } else {
-      await createStudent(payload);
-      showSuccess({ title: "Saved successfully", message: "Student details were saved successfully." });
+    try {
+      if (editingId) {
+        await updateStudent(editingId, payload);
+        showSuccess({ title: "Updated successfully", message: "Student details were updated successfully." });
+      } else {
+        await createStudent(payload);
+        showSuccess({ title: "Saved successfully", message: "Student details were saved successfully." });
+      }
+    } catch (error) {
+      const message = error?.response?.data?.detail || error?.message || "Unable to save student details.";
+      showNotice({ title: message === "Details Already Entered" ? "Details Already Entered" : "Unable to Save", message });
+      return;
     }
 
     setForm(initialForm);
@@ -98,15 +105,15 @@ export default function Students() {
         <form className="panel form-panel" onSubmit={handleSubmit}>
           <h3>{editingId ? "Edit Student" : "Add Student"}</h3>
           <div className="form-grid">
-            <input placeholder="Full name" value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} required />
+            <input placeholder="Full name *" value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} required />
             <select value={form.sex} onChange={(event) => setForm({ ...form, sex: event.target.value })} required>
-              <option value="">Select sex</option>
+              <option value="">Select sex *</option>
               {SEX_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
             <input placeholder="Age" type="number" value={form.age} onChange={(event) => setForm({ ...form, age: event.target.value })} />
-            <input placeholder="Admission number" value={form.admission_number} onChange={(event) => setForm({ ...form, admission_number: event.target.value })} />
+            <input value="Auto Generated *" readOnly aria-label="Auto Generated Admission Number" />
             <select value={form.class_name} onChange={(event) => setForm({ ...form, class_name: event.target.value })} required>
-              <option value="">Select class</option>
+              <option value="">Select class *</option>
               {classOptions.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
             <input placeholder="Guardian name" value={form.guardian_name} onChange={(event) => setForm({ ...form, guardian_name: event.target.value })} />
@@ -143,6 +150,7 @@ export default function Students() {
                 <tr>
                   <th>Rank</th>
                   <th>Name</th>
+                  <th>Admission No.</th>
                   <th>Sex</th>
                   <th>Class</th>
                   <th>Age</th>
@@ -156,12 +164,13 @@ export default function Students() {
               <tbody>
                 {groupedStudents.flatMap((group) => [
                   <tr key={`${group.formName}-label`} className="group-row group-row-green">
-                    <td colSpan="10"><strong>{group.formName}</strong></td>
+                    <td colSpan="11"><strong>{group.formName}</strong></td>
                   </tr>,
                   ...group.students.map((student, index) => (
                     <tr key={student.id}>
                       <td>{formatNumber(index + 1)}</td>
                       <td>{student.full_name}</td>
+                      <td>{student.admission_number || "-"}</td>
                       <td>{student.sex}</td>
                       <td>{student.class_name}</td>
                       <td>{student.age != null ? formatNumber(student.age) : "-"}</td>
@@ -188,12 +197,13 @@ export default function Students() {
                         </button>
                         <button type="button" className="danger-button" onClick={async () => {
                           const approved = await confirm({
-                            title: "Delete student record?",
-                            message: `Remove ${student.full_name || "this student"} from the register? This action cannot be undone.`,
+                            title: `Are You Sure You Want to Delete "${student.full_name || "Student"}"`,
+                            message: "This action cannot be undone.",
                             confirmLabel: "Delete Student",
                           });
                           if (!approved) return;
                           await deleteStudent(student.id);
+                          showSuccess({ title: "Deleted successfully", message: "Student record was deleted successfully." });
                           loadStudents();
                         }}>
                           Delete
@@ -202,7 +212,7 @@ export default function Students() {
                     </tr>
                   )),
                 ])}
-                {!filteredStudents.length ? <tr><td colSpan="10">No students found.</td></tr> : null}
+                {!filteredStudents.length ? <tr><td colSpan="11">No students found.</td></tr> : null}
               </tbody>
             </table>
           </div>

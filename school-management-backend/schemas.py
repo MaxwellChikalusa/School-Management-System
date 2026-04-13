@@ -178,15 +178,19 @@ class AttendanceOut(AttendanceBase, ORMModel):
 
 class FeeBase(BaseModel):
     student_id: int | None = None
+    admission_number: str | None = None
     student_name: str
+    transaction_date: str | None = None
     expected_amount: float
     amount_paid: float
     fully_paid: bool
+    reference_number: str | None = None
+    receipt_files: list[str] = []
     note: str | None = None
 
 
 class FeeCreate(FeeBase):
-    pass
+    merge_with_existing: bool = False
 
 
 class FeeUpdate(FeeBase):
@@ -205,6 +209,7 @@ class SubjectScore(BaseModel):
 
 class ExamRecordBase(BaseModel):
     student_id: int | None = None
+    admission_number: str | None = None
     student_name: str
     class_name: str
     post_office_address: str | None = None

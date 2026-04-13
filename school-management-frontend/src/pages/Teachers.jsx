@@ -285,7 +285,7 @@ export default function Teachers() {
                   onChange={(event) => setRequestForm({ ...requestForm, requested_subject: event.target.value })}
                   required
                 >
-                  <option value="">Select subject</option>
+                  <option value="">Select subject *</option>
                   {SECONDARY_SUBJECTS.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
                 </select>
                 <input
@@ -352,9 +352,9 @@ export default function Teachers() {
           <h3>Add Another Admin</h3>
           <p>Admins can add more admins when the school needs two or more controllers.</p>
           <div className="form-grid">
-            <input placeholder="Full name" value={adminForm.full_name} onChange={(event) => setAdminForm({ ...adminForm, full_name: event.target.value })} required />
-            <input placeholder="Username" value={adminForm.username} onChange={(event) => setAdminForm({ ...adminForm, username: event.target.value })} required />
-            <input type="password" placeholder="Password" value={adminForm.password} onChange={(event) => setAdminForm({ ...adminForm, password: event.target.value })} required />
+            <input placeholder="Full name *" value={adminForm.full_name} onChange={(event) => setAdminForm({ ...adminForm, full_name: event.target.value })} required />
+            <input placeholder="Username *" value={adminForm.username} onChange={(event) => setAdminForm({ ...adminForm, username: event.target.value })} required />
+            <input type="password" placeholder="Password *" value={adminForm.password} onChange={(event) => setAdminForm({ ...adminForm, password: event.target.value })} required />
           </div>
           <button type="submit" disabled={currentUser?.role !== "admin"}>Create Admin</button>
         </form>

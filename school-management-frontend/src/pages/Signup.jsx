@@ -80,21 +80,21 @@ export default function Signup() {
             <div className="form-grid">
               <input
                 type="text"
-                placeholder="Full name"
+                placeholder="Full name *"
                 value={form.full_name}
                 onChange={(event) => setForm({ ...form, full_name: event.target.value })}
                 required
               />
               <input
                 type="text"
-                placeholder="Username"
+                placeholder="Username *"
                 value={form.username}
                 onChange={(event) => setForm({ ...form, username: event.target.value })}
                 required
               />
               <input
                 type="password"
-                placeholder="Password"
+                placeholder="Password *"
                 value={form.password}
                 onChange={(event) => setForm({ ...form, password: event.target.value })}
                 required
@@ -107,11 +107,11 @@ export default function Signup() {
                 <option value="admin">Admin</option>
               </select>
               <select value={form.subject} onChange={(event) => setForm({ ...form, subject: event.target.value })}>
-                <option value="">Select subject</option>
+                <option value="">Select subject *</option>
                 {SECONDARY_SUBJECTS.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
               </select>
               <select value={form.sex} onChange={(event) => setForm({ ...form, sex: event.target.value })}>
-                <option value="">Select sex</option>
+                <option value="">Select sex *</option>
                 {SEX_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
               </select>
               <input

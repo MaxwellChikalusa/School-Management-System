@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import ExportMenu from "../components/ExportMenu";
 import { createAttendance, deleteAttendance, fetchAttendance, fetchStudents, updateAttendance } from "../api";
 import { groupStudentsByForm, matchesSearch } from "../constants/schoolData";
-import { useConfirmDialog, useSuccessDialog } from "../context/ConfirmDialogContext";
+import { useConfirmDialog, useNoticeDialog, useSuccessDialog } from "../context/ConfirmDialogContext";
 import "../styles/attendance.css";
 
 const initialForm = {
@@ -14,6 +14,7 @@ const initialForm = {
 
 export default function Attendance() {
   const confirm = useConfirmDialog();
+  const showNotice = useNoticeDialog();
   const showSuccess = useSuccessDialog();
   const [students, setStudents] = useState([]);
   const [records, setRecords] = useState([]);
@@ -52,12 +53,18 @@ export default function Attendance() {
           onSubmit={async (event) => {
             event.preventDefault();
             const payload = { ...form, student_id: Number(form.student_id) };
-            if (editingId) {
-              await updateAttendance(editingId, payload);
-              showSuccess({ title: "Updated successfully", message: "Attendance record was updated successfully." });
-            } else {
-              await createAttendance(payload);
-              showSuccess({ title: "Saved successfully", message: "Attendance record was saved successfully." });
+            try {
+              if (editingId) {
+                await updateAttendance(editingId, payload);
+                showSuccess({ title: "Updated successfully", message: "Attendance record was updated successfully." });
+              } else {
+                await createAttendance(payload);
+                showSuccess({ title: "Saved successfully", message: "Attendance record was saved successfully." });
+              }
+            } catch (error) {
+              const message = error?.response?.data?.detail || error?.message || "Unable to save attendance.";
+              showNotice({ title: message === "Already entered" ? "Already entered" : "Unable to Save", message });
+              return;
             }
             setForm(initialForm);
             setEditingId(null);
@@ -67,7 +74,7 @@ export default function Attendance() {
           <h3>{editingId ? "Edit Attendance" : "Mark Attendance"}</h3>
           <div className="form-grid">
             <select value={form.student_id} onChange={(event) => setForm({ ...form, student_id: event.target.value })} required>
-              <option value="">Select student</option>
+              <option value="">Select student *</option>
               {studentGroups.map((group) => (
                 <optgroup key={group.formName} label={group.formName}>
                   {group.students.map((student) => (
@@ -78,7 +85,7 @@ export default function Attendance() {
                 </optgroup>
               ))}
             </select>
-            <input type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required />
+            <input type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required aria-label="Date *" />
             <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
               <option value="Present">Present</option>
               <option value="Absent">Absent</option>
@@ -132,14 +139,15 @@ export default function Attendance() {
                       </button>
                       <button type="button" className="danger-button" onClick={async () => {
                         const approved = await confirm({
-                          title: "Delete attendance record?",
-                          message: `Remove the attendance entry for ${record.student?.full_name || "this student"}?`,
+                          title: `Are You Sure You Want to Delete "${record.student?.full_name || "Attendance Record"}"`,
+                          message: "This action cannot be undone.",
                           confirmLabel: "Delete Record",
                         });
-                        if (!approved) return;
-                        await deleteAttendance(record.id);
-                        loadData();
-                      }}>
+                          if (!approved) return;
+                          await deleteAttendance(record.id);
+                          showSuccess({ title: "Deleted successfully", message: "Attendance record was deleted successfully." });
+                          loadData();
+                        }}>
                         Delete
                       </button>
                     </td>

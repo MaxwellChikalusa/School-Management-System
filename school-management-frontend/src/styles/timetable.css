@@ -14,6 +14,7 @@
       transparent 28px
     );
   box-shadow: inset 0 0 0 1px rgba(128, 0, 0, 0.08);
+  min-width: 0;
 }
 
 .msce-sheet-header {
@@ -34,7 +35,7 @@
 .msce-sheet-header h4 {
   margin: 0.35rem 0;
   color: #10233a;
-  font-size: 1.35rem;
+  font-size: clamp(1.05rem, 1vw + 0.85rem, 1.35rem);
 }
 
 .msce-sheet-meta,
@@ -55,6 +56,10 @@
   font-size: 0.82rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.msce-table {
+  min-width: 720px;
 }
 
 .msce-table td {
@@ -81,5 +86,16 @@
 
   .msce-sheet-footer {
     flex-direction: column;
+  }
+}
+
+@media (max-width: 480px) {
+  .msce-sheet {
+    padding: 0.9rem;
+    border-radius: 14px;
+  }
+
+  .msce-sheet-header {
+    padding-bottom: 0.7rem;
   }
 }
