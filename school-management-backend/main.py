@@ -17,7 +17,7 @@ app = FastAPI(title="School Management System API")
 def build_allowed_origins() -> list[str]:
     configured_origins = [
         origin.strip()
-        for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
+        for origin in os.getenv("ALLOWED_ORIGINS", "https://school-management-frontend-wqp1.onrender.com,http://localhost:5173,http://127.0.0.1:5173").split(",")
         if origin.strip()
     ]
     frontend_host = os.getenv("FRONTEND_HOST", "").strip()
