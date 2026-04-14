@@ -13,11 +13,22 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="School Management System API")
 
-allowed_origins = [
-    origin.strip()
-    for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
-    if origin.strip()
-]
+
+def build_allowed_origins() -> list[str]:
+    configured_origins = [
+        origin.strip()
+        for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
+        if origin.strip()
+    ]
+    frontend_host = os.getenv("FRONTEND_HOST", "").strip()
+    if frontend_host:
+        configured_origins.append(
+            frontend_host if frontend_host.startswith(("http://", "https://")) else f"https://{frontend_host}"
+        )
+    return list(dict.fromkeys(configured_origins))
+
+
+allowed_origins = build_allowed_origins()
 
 app.add_middleware(
     CORSMiddleware,

@@ -1,7 +1,16 @@
 import axios from "axios";
 
+const configuredApiHost = import.meta.env.VITE_API_HOST;
+const configuredApiUrl = import.meta.env.VITE_API_URL || (
+  configuredApiHost
+    ? configuredApiHost.startsWith("http://") || configuredApiHost.startsWith("https://")
+      ? configuredApiHost
+      : `https://${configuredApiHost}`
+    : ""
+);
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://127.0.0.1:8000",
+  baseURL: configuredApiUrl || "http://127.0.0.1:8000",
 });
 
 api.interceptors.request.use((config) => {

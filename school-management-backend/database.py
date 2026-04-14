@@ -10,6 +10,10 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 def build_database_url() -> str:
     configured_url = os.getenv("DATABASE_URL")
     if configured_url:
+        if configured_url.startswith("postgres://"):
+            return configured_url.replace("postgres://", "postgresql+psycopg2://", 1)
+        if configured_url.startswith("postgresql://"):
+            return configured_url.replace("postgresql://", "postgresql+psycopg2://", 1)
         return configured_url
 
     db_user = os.getenv("POSTGRES_USER", "postgres")
