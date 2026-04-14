@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import PasswordField from "../components/PasswordField";
 import { useAuth } from "../context/AuthContext";
 import "../styles/login.css";
 
@@ -92,22 +93,19 @@ export default function Login() {
               <p className="eyebrow">Security Update</p>
               <h3>Change Password</h3>
               <p className="auth-form-note">You must set a new password before continuing.</p>
-              <input
-                type="password"
+              <PasswordField
                 placeholder="Current password *"
                 value={passwordForm.current_password}
                 onChange={(event) => setPasswordForm({ ...passwordForm, current_password: event.target.value })}
                 required
               />
-              <input
-                type="password"
+              <PasswordField
                 placeholder="New password *"
                 value={passwordForm.new_password}
                 onChange={(event) => setPasswordForm({ ...passwordForm, new_password: event.target.value })}
                 required
               />
-              <input
-                type="password"
+              <PasswordField
                 placeholder="Confirm new password *"
                 value={passwordForm.confirm_password}
                 onChange={(event) => setPasswordForm({ ...passwordForm, confirm_password: event.target.value })}
@@ -134,8 +132,7 @@ export default function Login() {
                 value={form.username}
                 onChange={(event) => setForm({ ...form, username: event.target.value })}
               />
-              <input
-                type="password"
+              <PasswordField
                 placeholder="Password *"
                 value={form.password}
                 onChange={(event) => setForm({ ...form, password: event.target.value })}

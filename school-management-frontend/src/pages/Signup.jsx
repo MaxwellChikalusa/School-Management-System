@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import PasswordField from "../components/PasswordField";
 import { useAuth } from "../context/AuthContext";
 import { SECONDARY_SUBJECTS, SEX_OPTIONS } from "../constants/schoolData";
 import "../styles/login.css";
@@ -92,8 +93,7 @@ export default function Signup() {
                 onChange={(event) => setForm({ ...form, username: event.target.value })}
                 required
               />
-              <input
-                type="password"
+              <PasswordField
                 placeholder="Password *"
                 value={form.password}
                 onChange={(event) => setForm({ ...form, password: event.target.value })}

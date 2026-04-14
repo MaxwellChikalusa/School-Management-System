@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import PasswordField from "../components/PasswordField";
 import ExportMenu from "../components/ExportMenu";
 import {
   approveAccessRequest,
@@ -354,7 +355,7 @@ export default function Teachers() {
           <div className="form-grid">
             <input placeholder="Full name *" value={adminForm.full_name} onChange={(event) => setAdminForm({ ...adminForm, full_name: event.target.value })} required />
             <input placeholder="Username *" value={adminForm.username} onChange={(event) => setAdminForm({ ...adminForm, username: event.target.value })} required />
-            <input type="password" placeholder="Password *" value={adminForm.password} onChange={(event) => setAdminForm({ ...adminForm, password: event.target.value })} required />
+            <PasswordField placeholder="Password *" value={adminForm.password} onChange={(event) => setAdminForm({ ...adminForm, password: event.target.value })} required />
           </div>
           <button type="submit" disabled={currentUser?.role !== "admin"}>Create Admin</button>
         </form>

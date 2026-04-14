@@ -161,7 +161,7 @@ export default function Dashboard() {
                 </button>
                 {activeAction === action.key ? (
                   <div className="quick-action-options">
-                    <ExportMenu title={action.title} filename={action.key} rows={action.rows} />
+                    <ExportMenu title={action.title} filename={action.key} rows={action.rows} layout="inline" />
                   </div>
                 ) : null}
               </div>

@@ -58,6 +58,46 @@ select {
   background: #fff;
 }
 
+.password-field {
+  position: relative;
+  width: 100%;
+}
+
+.password-field-input {
+  padding-right: 3rem;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0.45rem;
+  transform: translateY(-50%);
+  width: 2.2rem;
+  height: 2.2rem;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #5c7189;
+  display: grid;
+  place-items: center;
+}
+
+.password-toggle:hover {
+  background: rgba(15, 118, 110, 0.08);
+  color: #0f766e;
+}
+
+.password-toggle:focus-visible {
+  outline: 2px solid rgba(15, 118, 110, 0.35);
+  outline-offset: 2px;
+}
+
+.password-toggle svg {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -433,6 +473,10 @@ td {
   position: relative;
 }
 
+.export-menu-inline {
+  width: 100%;
+}
+
 .export-trigger-button {
   background: linear-gradient(135deg, #0f766e, #0b5f78);
 }
@@ -450,6 +494,15 @@ td {
   border: 1px solid #dde8f5;
   border-radius: 16px;
   box-shadow: 0 16px 36px rgba(8, 31, 58, 0.12);
+}
+
+.export-menu-inline .export-menu-panel {
+  position: static;
+  margin-top: 0.7rem;
+  min-width: 0;
+  width: 100%;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-radius: 18px;
 }
 
 .export-menu-panel button {
@@ -597,9 +650,8 @@ td {
 }
 
 .quick-action-options {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
+  display: block;
+  width: 100%;
   margin-top: 0.85rem;
 }
 
@@ -859,6 +911,10 @@ td {
   }
 
   .teacher-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .export-menu-inline .export-menu-panel {
     grid-template-columns: 1fr;
   }
 }
