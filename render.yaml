@@ -29,6 +29,8 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 20.19.0
+      - key: VITE_API_URL
+        value: https://school-management-api-6i2r.onrender.com
       - key: VITE_API_HOST
         fromService:
           name: school-management-api

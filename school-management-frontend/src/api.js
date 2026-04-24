@@ -1,16 +1,22 @@
 import axios from "axios";
 
+function normalizeConfiguredHost(rawHost) {
+  const host = (rawHost || "").trim();
+  if (!host) return "";
+  if (host.startsWith("http://") || host.startsWith("https://")) return host;
+  if (!host.includes(".")) return `https://${host}.onrender.com`;
+  return `https://${host}`;
+}
+
 const configuredApiHost = import.meta.env.VITE_API_HOST;
-const configuredApiUrl = import.meta.env.VITE_API_URL || (
-  configuredApiHost
-    ? configuredApiHost.startsWith("http://") || configuredApiHost.startsWith("https://")
-      ? configuredApiHost
-      : `https://${configuredApiHost}`
-    : ""
-);
+const configuredApiUrl = (import.meta.env.VITE_API_URL || "").trim() || normalizeConfiguredHost(configuredApiHost);
+const productionApiFallback = "https://school-management-api-6i2r.onrender.com";
+const defaultApiBaseUrl = window.location.hostname.includes("onrender.com")
+  ? productionApiFallback
+  : "http://127.0.0.1:8000";
 
 const api = axios.create({
-  baseURL: configuredApiUrl || "http://127.0.0.1:8000",
+  baseURL: configuredApiUrl || defaultApiBaseUrl,
 });
 
 api.interceptors.request.use((config) => {
