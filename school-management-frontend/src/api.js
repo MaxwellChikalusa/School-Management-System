@@ -10,7 +10,7 @@ const configuredApiUrl = import.meta.env.VITE_API_URL || (
 );
 
 const api = axios.create({
-  baseURL: configuredApiUrl || "http://127.0.0.1:8000,https://school-management-api-6i2r.onrender.com",
+  baseURL: configuredApiUrl || "http://127.0.0.1:8000",
 });
 
 api.interceptors.request.use((config) => {

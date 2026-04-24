@@ -1,5 +1,7 @@
 import datetime
 import json
+import os
+import sqlite3
 
 import bcrypt
 from sqlalchemy import func, inspect, or_, text
@@ -280,6 +282,210 @@ def get_or_create_default_admin(db: Session) -> models.User:
     db.commit()
     db.refresh(admin)
     return admin
+
+
+def migrate_legacy_sqlite_if_needed(db: Session) -> bool:
+    if db.bind.dialect.name != "postgresql":
+        return False
+
+    has_live_data = any(
+        [
+            db.query(models.User).count() > 1,
+            db.query(models.Teacher).count() > 0,
+            db.query(models.Student).count() > 0,
+            db.query(models.Attendance).count() > 0,
+            db.query(models.Fee).count() > 0,
+            db.query(models.ExamRecord).count() > 0,
+            db.query(models.Timetable).count() > 0,
+            db.query(models.TimetableEntry).count() > 0,
+        ]
+    )
+    if has_live_data:
+        return False
+
+    legacy_path = os.getenv(
+        "LEGACY_SQLITE_PATH",
+        os.path.join(os.path.dirname(__file__), "school_management.db"),
+    )
+    if not os.path.exists(legacy_path):
+        return False
+
+    connection = sqlite3.connect(legacy_path)
+    connection.row_factory = sqlite3.Row
+
+    try:
+        cursor = connection.cursor()
+        cursor.execute("SELECT COUNT(*) FROM users")
+        if cursor.fetchone()[0] == 0:
+            return False
+
+        db.query(models.TimetableEntry).delete()
+        db.query(models.Timetable).delete()
+        db.query(models.ExamRecord).delete()
+        db.query(models.Fee).delete()
+        db.query(models.Attendance).delete()
+        db.query(models.Student).delete()
+        db.query(models.Teacher).delete()
+        db.query(models.User).delete()
+        db.flush()
+
+        for row in connection.execute("SELECT * FROM users"):
+            db.add(
+                models.User(
+                    id=row["id"],
+                    username=row["username"],
+                    password_hash=row["password_hash"],
+                    role=row["role"],
+                    status=row["status"],
+                    must_change_password=True,
+                    full_name=row["full_name"],
+                    profile_image=row["profile_image"],
+                )
+            )
+
+        for row in connection.execute("SELECT * FROM teachers"):
+            db.add(
+                models.Teacher(
+                    id=row["id"],
+                    full_name=row["full_name"],
+                    sex=row["sex"],
+                    subject=row["subject"],
+                    phone=row["phone"],
+                    email=row["email"],
+                    qualification=row["qualification"],
+                    profile_image=row["profile_image"],
+                    user_id=row["user_id"],
+                    approved=bool(row["approved"]),
+                )
+            )
+
+        for row in connection.execute("SELECT * FROM students"):
+            db.add(
+                models.Student(
+                    id=row["id"],
+                    full_name=row["full_name"],
+                    sex=row["sex"],
+                    age=row["age"],
+                    admission_number=row["admission_number"],
+                    class_name=row["class_name"],
+                    guardian_name=row["guardian_name"],
+                    guardian_contact=row["guardian_contact"],
+                    email_address=None,
+                    address=row["address"],
+                )
+            )
+
+        for row in connection.execute("SELECT * FROM attendance"):
+            db.add(
+                models.Attendance(
+                    id=row["id"],
+                    student_id=row["student_id"],
+                    date=row["date"],
+                    status=row["status"],
+                    note=row["note"],
+                )
+            )
+
+        for row in connection.execute("SELECT * FROM fees"):
+            db.add(
+                models.Fee(
+                    id=row["id"],
+                    student_id=row["student_id"],
+                    admission_number=None,
+                    student_name=row["student_name"],
+                    transaction_date=None,
+                    expected_amount=float(row["expected_amount"] or 0),
+                    amount_paid=float(row["amount_paid"] or 0),
+                    fully_paid=bool(row["fully_paid"]),
+                    reference_numbers=None,
+                    receipt_files=None,
+                    note=row["note"],
+                )
+            )
+
+        for row in connection.execute("SELECT * FROM exam_records"):
+            db.add(
+                models.ExamRecord(
+                    id=row["id"],
+                    student_id=row["student_id"],
+                    student_name=row["student_name"],
+                    class_name=row["class_name"],
+                    post_office_address=None,
+                    exam_name=row["exam_name"],
+                    term=row["term"],
+                    subject_scores=row["subject_scores"],
+                    english=float(row["english"] or 0),
+                    mathematics=float(row["mathematics"] or 0),
+                    science=float(row["science"] or 0),
+                    social_studies=float(row["social_studies"] or 0),
+                    average=float(row["average"] or 0),
+                    total_score=float(row["total_score"] or 0),
+                    result_label=row["result_label"],
+                    overall_result=row["overall_result"],
+                    english_failed=bool(row["english_failed"]),
+                    passed=bool(row["passed"]),
+                    rank=row["rank"],
+                )
+            )
+
+        for row in connection.execute("SELECT * FROM timetables"):
+            db.add(
+                models.Timetable(
+                    id=row["id"],
+                    title=row["title"],
+                    timetable_type=row["timetable_type"],
+                    class_name=row["class_name"],
+                    is_posted=bool(row["is_posted"]),
+                    note=row["note"],
+                    days=row["days"],
+                )
+            )
+
+        for row in connection.execute("SELECT * FROM timetable_entries"):
+            db.add(
+                models.TimetableEntry(
+                    id=row["id"],
+                    timetable_id=row["timetable_id"],
+                    day_of_week=row["day_of_week"],
+                    start_time=row["start_time"],
+                    end_time=row["end_time"],
+                    subject=row["subject"],
+                    teacher_name=row["teacher_name"],
+                    room=row["room"],
+                    note=row["note"],
+                )
+            )
+
+        db.flush()
+
+        for teacher in db.query(models.Teacher).filter(models.Teacher.approved.is_(True)).all():
+            sync_primary_subject_access(db, teacher, FORM_OPTIONS)
+
+        for table_name in [
+            "users",
+            "teachers",
+            "students",
+            "attendance",
+            "fees",
+            "exam_records",
+            "timetables",
+            "timetable_entries",
+            "teacher_subject_accesses",
+            "teacher_access_requests",
+        ]:
+            db.execute(
+                text(
+                    "SELECT setval("
+                    "pg_get_serial_sequence(:table_name, 'id'), "
+                    "COALESCE((SELECT MAX(id) FROM " + table_name + "), 1), true)"
+                ),
+                {"table_name": table_name},
+            )
+
+        db.commit()
+        return True
+    finally:
+        connection.close()
 
 
 def get_teacher_by_user_id(db: Session, user_id: int | None) -> models.Teacher | None:

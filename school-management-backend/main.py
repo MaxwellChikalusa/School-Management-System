@@ -79,6 +79,7 @@ def startup_seed():
     try:
         models.Base.metadata.create_all(bind=engine)
         crud.ensure_schema(db)
+        crud.migrate_legacy_sqlite_if_needed(db)
         crud.get_or_create_default_admin(db)
     finally:
         db.close()
